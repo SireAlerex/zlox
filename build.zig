@@ -1,9 +1,15 @@
 const std = @import("std");
 
+pub const bla = 5;
+
 // Although this function looks imperative, note that its job is to
 // declaratively construct a build graph that will be executed by an external
 // runner.
 pub fn build(b: *std.Build) void {
+    const debug_mode = b.option(bool, "EBUG", "Enable debug mode") orelse false;
+    const options = b.addOptions();
+    options.addOption(bool, "debug_mode", debug_mode);
+
     // Standard target options allows the person running `zig build` to choose
     // what target to build for. Here we do not override the defaults, which
     // means any target is allowed, and the default is native. Other options
@@ -21,6 +27,8 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
+
+    exe.root_module.addOptions("config", options);
 
     // This declares intent for the executable to be installed into the
     // standard location when the user invokes the "install" step (the default

@@ -8,6 +8,11 @@ pub const OpCode = enum(u8) {
     Return,
     Constant,
     ConstantLong,
+    Negate,
+    Add,
+    Sub,
+    Mul,
+    Div,
     _,
 };
 
@@ -33,22 +38,21 @@ pub const Chunk = struct {
         allocator.destroy(self);
     }
 
-    pub fn len(self: *Chunk) usize {
+    fn len(self: *Chunk) usize {
         return self.code.items.len;
     }
 
-    pub fn constants_len(self: *Chunk) usize {
+    fn constants_len(self: *Chunk) usize {
         return self.constants.items.len;
     }
 
-    pub fn lines_len(self: *Chunk) usize {
+    fn lines_len(self: *Chunk) usize {
         return self.lines.items.len;
     }
 
     pub fn write(self: *Chunk, byte: anytype, line: u32) !void {
         switch (@TypeOf(byte)) {
-            comptime_int => try self.code.append(self.allocator, byte),
-            u8 => try self.code.append(self.allocator, byte),
+            inline comptime_int, u8 => try self.code.append(self.allocator, byte),
             usize => try self.code.append(self.allocator, @truncate(byte)),
             OpCode => try self.code.append(self.allocator, @intFromEnum(byte)),
             else => unreachable,
@@ -84,11 +88,6 @@ pub const Chunk = struct {
         }
     }
 
-    pub fn addConstant(self: *Chunk, value: Value) !usize {
-        try self.constants.append(self.allocator, value);
-        return self.constants_len() - 1;
-    }
-
     pub fn dissasemble_chunk(self: *Chunk, name: []const u8) void {
         print("== {s} ==\n", .{name});
 
@@ -111,6 +110,11 @@ pub const Chunk = struct {
             .Return => return simple_instruction("OP_RETURN", offset),
             .Constant => return self.constant_instruction("OP_CONSTANT", offset),
             .ConstantLong => return self.constant_long_instruction("OP_CONSTANT_LONG", offset),
+            .Negate => return simple_instruction("OP_NEGATE", offset),
+            .Add => return simple_instruction("OP_ADD", offset),
+            .Sub => return simple_instruction("OP_SUB", offset),
+            .Mul => return simple_instruction("OP_MUL", offset),
+            .Div => return simple_instruction("OP_DIV", offset),
             else => {
                 print("Unknown opcode {}\n", .{instruction});
                 return offset + 1;
@@ -122,7 +126,7 @@ pub const Chunk = struct {
         return self.code.items.ptr[offset];
     }
 
-    fn get_constant(self: *Chunk, offset: u32) Value {
+    pub fn get_constant(self: *Chunk, offset: u16) Value {
         assert(offset < self.constants_len());
         return self.constants.items.ptr[offset];
     }
