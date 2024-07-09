@@ -20,22 +20,22 @@ pub const Chunk = struct {
     code: ArrayListUnmanaged(u8),
     constants: ArrayListUnmanaged(Value),
     lines: ArrayListUnmanaged(Line),
-    allocator: std.mem.Allocator,
+    allocator: *const std.mem.Allocator,
 
     pub fn init(allocator: *const std.mem.Allocator) !*Chunk {
         var self = try allocator.create(Chunk);
         self.code = try ArrayListUnmanaged(u8).initCapacity(allocator.*, 4);
         self.constants = try ArrayListUnmanaged(Value).initCapacity(allocator.*, 4);
         self.lines = try ArrayListUnmanaged(Line).initCapacity(allocator.*, 4);
-        self.allocator = allocator.*;
+        self.allocator = allocator;
         return self;
     }
 
-    pub fn destroy(self: *Chunk, allocator: *const std.mem.Allocator) void {
-        self.code.deinit(self.allocator);
-        self.constants.deinit(self.allocator);
-        self.lines.deinit(self.allocator);
-        allocator.destroy(self);
+    pub fn destroy(self: *Chunk) void {
+        self.code.deinit(self.allocator.*);
+        self.constants.deinit(self.allocator.*);
+        self.lines.deinit(self.allocator.*);
+        self.allocator.destroy(self);
     }
 
     fn len(self: *Chunk) usize {

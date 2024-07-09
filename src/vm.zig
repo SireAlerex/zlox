@@ -5,6 +5,7 @@ const chunk_mod = @import("chunk.zig");
 const Chunk = chunk_mod.Chunk;
 const OpCode = @import("chunk.zig").OpCode;
 const Value = @import("value.zig").Value;
+const Compiler = @import("compiler.zig").Compiler;
 
 const DEBUG = @import("main.zig").DEBUG;
 const STACK_MAX = 256;
@@ -26,11 +27,21 @@ pub const VM = struct {
     }
     pub fn destroy(_: *VM) void {}
 
-    pub fn interpret(self: *VM, chunk: *Chunk) VMError!void {
+    pub fn init_chunk(self: *VM, chunk: *Chunk) void {
+        self.chunk = chunk;
+        self.ip = chunk.code.items.ptr;
+        self.stack_top = &self.stack;
+    }
+
+    pub fn interpret_chunk(self: *VM, chunk: *Chunk) VMError!void {
         self.chunk = chunk;
         self.ip = chunk.code.items.ptr;
         self.stack_top = &self.stack;
         try self.run();
+    }
+
+    pub fn interpret(self: *const VM, source: *[]const u8) !void {
+        try Compiler.compile(self.chunk.allocator, source);
     }
 
     fn run(self: *VM) VMError!void {

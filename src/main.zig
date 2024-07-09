@@ -8,31 +8,63 @@ pub const DEBUG = @import("config").debug_mode;
 pub fn main() !void {
     // Allocator setup
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    const allocator = gpa.allocator();
     defer std.debug.assert(gpa.deinit() == .ok);
+    const allocator = gpa.allocator();
 
-    var vm = VM.create();
-    defer vm.destroy();
+    var args = try std.process.argsWithAllocator(allocator);
+    defer args.deinit();
 
     const chunk = try Chunk.init(&allocator);
-    defer chunk.destroy(&allocator);
+    defer chunk.destroy();
 
-    try chunk.write_constant(Value.new(1.2), 123);
-    try chunk.write_constant(Value.new(3.4), 123);
-    try chunk.write(OpCode.Add, 123);
+    var vm = VM.create();
+    vm.init_chunk(chunk);
+    defer vm.destroy();
 
-    try chunk.write_constant(Value.new(5.6), 123);
-    try chunk.write(OpCode.Div, 123);
+    // exe name
+    _ = args.next();
+    if (args.next()) |arg| {
+        try run_file(allocator, arg, vm);
+    } else {
+        try repl();
+    }
 
-    try chunk.write(OpCode.Negate, 123);
+    // try chunk.write_constant(Value.new(1.2), 123);
+    // try chunk.write_constant(Value.new(3.4), 123);
+    // try chunk.write(OpCode.Add, 123);
 
-    try chunk.write(OpCode.Return, 123);
+    // try chunk.write_constant(Value.new(5.6), 123);
+    // try chunk.write(OpCode.Div, 123);
+
+    // try chunk.write(OpCode.Negate, 123);
+
+    // try chunk.write(OpCode.Return, 123);
+
     // chunk.dissasemble_chunk("test");
 
     // chunk.show();
     // size_struct(Chunk);
 
-    try vm.interpret(chunk);
+    // try vm.interpret(chunk);
+}
+
+fn repl() !void {
+    std.debug.print("repl todo", .{});
+}
+
+fn run_file(allocator: std.mem.Allocator, file_name: []const u8, vm: VM) !void {
+    var source: []const u8 = try read_file(allocator, file_name);
+    defer allocator.free(source);
+
+    std.debug.print("file:\n'{s}'\n", .{source});
+    try vm.interpret(&source);
+}
+
+fn read_file(allocator: std.mem.Allocator, file_name: []const u8) ![]u8 {
+    const handle = try std.fs.cwd().openFile(file_name, .{ .mode = .read_only });
+    defer handle.close();
+
+    return try handle.readToEndAlloc(allocator, try handle.getEndPos());
 }
 
 // debug function to check size of a struct
