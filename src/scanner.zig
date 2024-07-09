@@ -151,6 +151,8 @@ pub const Scanner = struct {
 
     fn skip_white_space(self: *Scanner) void {
         while (true) {
+            if (self.is_at_end()) return;
+
             switch (self.peek()) {
                 ' ', '\r', '\t' => _ = self.advance(),
                 '/' => {

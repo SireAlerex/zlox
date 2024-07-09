@@ -13,6 +13,16 @@ pub const OpCode = enum(u8) {
     Sub,
     Mul,
     Div,
+    Nil,
+    True,
+    False,
+    Not,
+    Equal,
+    NotEqual,
+    Greater,
+    GreaterEqual,
+    Less,
+    LessEqual,
     _,
 };
 
@@ -115,6 +125,16 @@ pub const Chunk = struct {
             .Sub => return simple_instruction("OP_SUB", offset),
             .Mul => return simple_instruction("OP_MUL", offset),
             .Div => return simple_instruction("OP_DIV", offset),
+            .False => return simple_instruction("OP_FALSE", offset),
+            .True => return simple_instruction("OP_TRUE", offset),
+            .Nil => return simple_instruction("OP_NIL", offset),
+            .Not => return simple_instruction("OP_NOT", offset),
+            .Equal => return simple_instruction("OP_EQUAL", offset),
+            .NotEqual => return simple_instruction("OP_NOT_EQUAL", offset),
+            .Greater => return simple_instruction("OP_GREATER", offset),
+            .GreaterEqual => return simple_instruction("OP_GREATER_EQUAL", offset),
+            .Less => return simple_instruction("OP_LESS", offset),
+            .LessEqual => return simple_instruction("OP_LESS_EQUAL", offset),
             else => {
                 print("Unknown opcode {}\n", .{instruction});
                 return offset + 1;
@@ -131,7 +151,7 @@ pub const Chunk = struct {
         return self.constants.items.ptr[offset];
     }
 
-    fn get_line(self: *const Chunk, offset: u32) Line {
+    pub fn get_line(self: *const Chunk, offset: u32) Line {
         var index = offset;
         for (self.lines.items) |line| {
             if (index < line.count) {
@@ -151,7 +171,7 @@ pub const Chunk = struct {
     fn constant_instruction(self: *const Chunk, name: []const u8, offset: u32) u32 {
         const byte = self.get(offset + 1);
         print("{s}{d: >8} -> '", .{ name, byte });
-        self.get_constant(byte).print();
+        self.get_constant(byte).show();
         print("'\n", .{});
 
         return offset + 2;
@@ -162,14 +182,10 @@ pub const Chunk = struct {
         const lo = self.get(offset + 2);
         const index: u16 = (@as(u16, hi) << 8) | @as(u16, lo);
         print("{s}{d: >8} -> '", .{ name, index });
-        self.get_constant(index).print();
+        self.get_constant(index).show();
         print("'\n", .{});
 
         return offset + 3;
-    }
-
-    pub fn show(self: *const Chunk) void {
-        std.debug.print("chunk: {}\n", .{self});
     }
 };
 

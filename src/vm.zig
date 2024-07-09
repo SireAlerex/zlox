@@ -10,7 +10,7 @@ const Compiler = @import("compiler.zig").Compiler;
 const DEBUG_MODE = @import("main.zig").config.DEBUG_MODE;
 const STACK_SIZE = @import("main.zig").config.STACK_SIZE;
 
-const VMError = error{
+pub const VMError = error{
     CompileError,
     RuntimeError,
 };
@@ -20,6 +20,11 @@ pub const VM = struct {
     ip: [*]u8,
     stack: [STACK_SIZE]Value = [_]Value{.uninit} ** STACK_SIZE,
     stack_top: [*]Value,
+
+    // const values
+    const FALSE = Value{ .boolean = false };
+    const TRUE = Value{ .boolean = true };
+    const NIL = Value.nil;
 
     /// Must call reset_stack after creating VM
     pub fn create() VM {
@@ -58,7 +63,7 @@ pub const VM = struct {
 
                 while (slot != self.stack_top) : (slot += 1) {
                     print("[ ", .{});
-                    slot[0].print();
+                    slot[0].show();
                     print(" ]", .{});
                 }
                 print("\n", .{});
@@ -71,7 +76,7 @@ pub const VM = struct {
 
             switch (instruction) {
                 .Return => {
-                    self.pop().print();
+                    self.pop().show();
                     print("\n", .{});
                     return;
                 },
@@ -85,32 +90,118 @@ pub const VM = struct {
                 },
                 .Negate => {
                     self.stack_top -= 1;
+
+                    if (self.stack_top[0] != .number) {
+                        self.runtime_error("Negate operand must be a number, got {s}", .{self.stack_top[0].get_type()});
+                        return VMError.RuntimeError;
+                    }
                     self.stack_top[0].negate();
+
                     self.stack_top += 1;
                 },
                 .Add => {
                     const right = self.pop();
                     var left = self.pop();
+
+                    if (right != .number or left != .number) {
+                        self.runtime_error("Add operands must be number, got {s} + {s}", .{ left.get_type(), right.get_type() });
+                        return VMError.RuntimeError;
+                    }
+
                     left.add(right);
                     self.push(left);
                 },
                 .Sub => {
                     const right = self.pop();
                     var left = self.pop();
+
+                    if (right != .number or left != .number) {
+                        self.runtime_error("Sub operands must be number, got {s} - {s}", .{ left.get_type(), right.get_type() });
+                        return VMError.RuntimeError;
+                    }
+
                     left.sub(right);
                     self.push(left);
                 },
                 .Mul => {
                     const right = self.pop();
                     var left = self.pop();
+
+                    if (right != .number or left != .number) {
+                        self.runtime_error("Mul operands must be number, got {s} * {s}", .{ left.get_type(), right.get_type() });
+                        return VMError.RuntimeError;
+                    }
+
                     left.mul(right);
                     self.push(left);
                 },
                 .Div => {
                     const right = self.pop();
                     var left = self.pop();
+
+                    if (right != .number or left != .number) {
+                        self.runtime_error("Div operands must be number, got {s} / {s}", .{ left.get_type(), right.get_type() });
+                        return VMError.RuntimeError;
+                    }
+
                     left.div(right);
                     self.push(left);
+                },
+                .False => self.push(FALSE),
+                .True => self.push(TRUE),
+                .Nil => self.push(NIL),
+                .Not => self.push(self.pop().is_falsey()),
+                .Equal => {
+                    const right = self.pop();
+                    self.push(Value{ .boolean = self.pop().eq(right) });
+                },
+                .NotEqual => {
+                    const right = self.pop();
+                    self.push(Value{ .boolean = !self.pop().eq(right) });
+                },
+                .Greater => {
+                    const right = self.pop();
+                    var left = self.pop();
+
+                    if (right != .number or left != .number) {
+                        self.runtime_error("Greater operands must be number, got {s} > {s}", .{ left.get_type(), right.get_type() });
+                        return VMError.RuntimeError;
+                    }
+
+                    self.push(Value{ .boolean = left.greater(right) });
+                },
+                .GreaterEqual => {
+                    const right = self.pop();
+                    var left = self.pop();
+
+                    if (right != .number or left != .number) {
+                        self.runtime_error("GreaterEqual operands must be number, got {s} >= {s}", .{ left.get_type(), right.get_type() });
+                        return VMError.RuntimeError;
+                    }
+
+                    self.push(Value{ .boolean = left.greater_eq(right) });
+                },
+                .Less => {
+                    const right = self.pop();
+                    var left = self.pop();
+
+                    if (right != .number or left != .number) {
+                        self.runtime_error("Less operands must be number, got {s} < {s}", .{ left.get_type(), right.get_type() });
+                        return VMError.RuntimeError;
+                    }
+
+                    self.push(Value{ .boolean = left.less(right) });
+                },
+                .LessEqual => {
+                    const right = self.pop();
+                    var left = self.pop();
+
+                    if (right != .number or left != .number) {
+                        self.runtime_error("LessEqual operands must be number, got {s} <= {s}", .{ left.get_type(), right.get_type() });
+                        return VMError.RuntimeError;
+                    }
+
+                    self.push(Value{ .boolean = left.less_eq(right) });
                 },
                 else => unreachable,
             }
@@ -151,5 +242,15 @@ pub const VM = struct {
 
     pub fn reset_stack(self: *VM) void {
         self.stack_top = &self.stack;
+    }
+
+    fn runtime_error(self: *VM, comptime fmt: []const u8, args: anytype) void {
+        print(fmt, args);
+        print("\n", .{});
+
+        const instruction = @intFromPtr(self.ip) - @intFromPtr(self.chunk.code.items.ptr) - 1;
+        const line = self.chunk.get_line(@truncate(instruction)).line;
+        print("[line {d}] in script\n", .{line});
+        self.reset_stack();
     }
 };

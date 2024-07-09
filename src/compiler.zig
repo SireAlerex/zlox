@@ -47,6 +47,7 @@ pub const Compiler = struct {
         // emit operator instruction
         switch (operator_type) {
             .Minus => self.emit_byte(OpCode.Negate),
+            .Bang => self.emit_byte(OpCode.Not),
             else => unreachable,
         }
     }
@@ -61,6 +62,21 @@ pub const Compiler = struct {
             .Minus => self.emit_byte(OpCode.Sub),
             .Star => self.emit_byte(OpCode.Mul),
             .Slash => self.emit_byte(OpCode.Div),
+            .BangEqual => self.emit_byte(OpCode.NotEqual),
+            .EqualEqual => self.emit_byte(OpCode.Equal),
+            .Greater => self.emit_byte(OpCode.Greater),
+            .GreaterEqual => self.emit_byte(OpCode.GreaterEqual),
+            .Less => self.emit_byte(OpCode.Less),
+            .LessEqual => self.emit_byte(OpCode.LessEqual),
+            else => unreachable,
+        }
+    }
+
+    fn literal(self: *Compiler) void {
+        switch (self.parser.previous.type) {
+            .False => self.emit_byte(OpCode.False),
+            .True => self.emit_byte(OpCode.True),
+            .Nil => self.emit_byte(OpCode.Nil),
             else => unreachable,
         }
     }
@@ -190,6 +206,16 @@ pub const Compiler = struct {
             rules_inner[@intFromEnum(TokenType.Star)] = ParseRule{ .infix = binary, .precedence = Precedence.Factor };
             rules_inner[@intFromEnum(TokenType.Slash)] = ParseRule{ .infix = binary, .precedence = Precedence.Factor };
             rules_inner[@intFromEnum(TokenType.Number)] = ParseRule{ .prefix = number };
+            rules_inner[@intFromEnum(TokenType.False)] = ParseRule{ .prefix = literal };
+            rules_inner[@intFromEnum(TokenType.True)] = ParseRule{ .prefix = literal };
+            rules_inner[@intFromEnum(TokenType.Nil)] = ParseRule{ .prefix = literal };
+            rules_inner[@intFromEnum(TokenType.Bang)] = ParseRule{ .prefix = unary };
+            rules_inner[@intFromEnum(TokenType.BangEqual)] = ParseRule{ .infix = binary, .precedence = Precedence.Equality };
+            rules_inner[@intFromEnum(TokenType.EqualEqual)] = ParseRule{ .infix = binary, .precedence = Precedence.Equality };
+            rules_inner[@intFromEnum(TokenType.Greater)] = ParseRule{ .infix = binary, .precedence = Precedence.Comparison };
+            rules_inner[@intFromEnum(TokenType.GreaterEqual)] = ParseRule{ .infix = binary, .precedence = Precedence.Comparison };
+            rules_inner[@intFromEnum(TokenType.Less)] = ParseRule{ .infix = binary, .precedence = Precedence.Comparison };
+            rules_inner[@intFromEnum(TokenType.LessEqual)] = ParseRule{ .infix = binary, .precedence = Precedence.Comparison };
 
             return rules_inner;
         }

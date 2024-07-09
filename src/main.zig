@@ -3,6 +3,7 @@ const Chunk = @import("chunk.zig").Chunk;
 const OpCode = @import("chunk.zig").OpCode;
 const Value = @import("value.zig").Value;
 const VM = @import("vm.zig").VM;
+const VMError = @import("vm.zig").VMError;
 pub const config = @import("config");
 
 pub fn main() !void {
@@ -39,7 +40,7 @@ fn repl(allocator: std.mem.Allocator) !void {
         // skip "enter"
         if (buffer.items.len == 0 or buffer.items.ptr[0] == '\n' or buffer.items.ptr[0] == '\r') continue;
 
-        try vm.interpret(&allocator, &buffer.items);
+        vm.interpret(&allocator, &buffer.items) catch |e| exit_with_error(e);
     }
 }
 
@@ -49,7 +50,7 @@ fn run_file(allocator: std.mem.Allocator, file_name: []const u8) !void {
 
     var vm = VM.create();
     vm.reset_stack();
-    try vm.interpret(&allocator, &source);
+    vm.interpret(&allocator, &source) catch |e| exit_with_error(e);
 }
 
 fn read_file(allocator: std.mem.Allocator, file_name: []const u8) ![]u8 {
@@ -57,6 +58,16 @@ fn read_file(allocator: std.mem.Allocator, file_name: []const u8) ![]u8 {
     defer handle.close();
 
     return try handle.readToEndAlloc(allocator, try handle.getEndPos());
+}
+
+fn exit_with_error(err: anytype) void {
+    if (err == VMError.RuntimeError) {
+        std.debug.print("VM stopped execution because of a runtime error\n", .{});
+    } else if (err == VMError.CompileError) {
+        std.debug.print("VM could not execute code because of a compilation error\n", .{});
+    } else {
+        std.debug.print("Encountered an error: {any}\n", .{err});
+    }
 }
 
 // debug function to check size of a struct
