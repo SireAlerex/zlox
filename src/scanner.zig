@@ -175,7 +175,7 @@ pub const Scanner = struct {
     }
 
     fn make_token(self: *const Scanner, kind: TokenType) Token {
-        return Token{ .type = kind, .start = self.start, .len = self.current_len(), .line = self.line };
+        return Token{ .type = kind, .str = self.start[0..self.current_len()], .line = self.line };
     }
 
     fn error_token(self: *Scanner, comptime fmt: []const u8, args: anytype) Token {
@@ -192,11 +192,11 @@ pub const Scanner = struct {
             return self.basic_errror(fmt);
         };
 
-        return Token{ .type = TokenType.Error, .start = message.ptr, .len = message.len, .line = self.line };
+        return Token{ .type = TokenType.Error, .str = message, .line = self.line };
     }
 
     fn basic_errror(self: *const Scanner, comptime fmt: []const u8) Token {
-        return Token{ .type = TokenType.Error, .start = fmt.ptr, .len = fmt.len, .line = self.line };
+        return Token{ .type = TokenType.Error, .str = fmt, .line = self.line };
     }
 
     fn is_at_end(self: *const Scanner) bool {
@@ -210,14 +210,8 @@ pub const Scanner = struct {
 
 pub const Token = struct {
     type: TokenType,
-    // TODO: use a slice fat pointer (with a [*]const u8 ptr and a len)
-    start: [*]const u8,
-    len: usize,
+    str: []const u8,
     line: u32,
-
-    pub fn show(self: *const Token) []const u8 {
-        return self.start[0..self.len];
-    }
 };
 
 pub const TokenType = enum {

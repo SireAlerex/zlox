@@ -92,7 +92,7 @@ pub const Compiler = struct {
     }
 
     fn number(self: *Compiler) void {
-        const value = std.fmt.parseFloat(f64, self.parser.previous.show()) catch unreachable;
+        const value = std.fmt.parseFloat(f64, self.parser.previous.str) catch unreachable;
         self.emit_constant(Value.new(value));
     }
 
@@ -106,7 +106,7 @@ pub const Compiler = struct {
         while (true) {
             self.parser.current = self.scanner.scan_token();
 
-            if (self.parser.current.type != TokenType.Error) break else self.parser.error_at_current(&self.parser.current.show());
+            if (self.parser.current.type != TokenType.Error) break else self.parser.error_at_current(&self.parser.current.str);
         }
     }
 
@@ -165,7 +165,7 @@ pub const Compiler = struct {
             switch (token.type) {
                 .EOF => std.debug.print(" at end", .{}),
                 .Error => {},
-                else => std.debug.print(" at {s}", .{token.show()}),
+                else => std.debug.print(" at {s}", .{token.str}),
             }
 
             std.debug.print(": {s}\n", .{message.*});
