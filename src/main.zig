@@ -32,13 +32,14 @@ fn repl(allocator: std.mem.Allocator) !void {
 
     while (true) {
         try stdout.print(">> ", .{});
+
+        buffer.clearRetainingCapacity();
         stdin.streamUntilDelimiter(buffer.writer(), '\n', null) catch break;
+
         // skip "enter"
         if (buffer.items.len == 0 or buffer.items.ptr[0] == '\n' or buffer.items.ptr[0] == '\r') continue;
 
         try vm.interpret(&allocator, &buffer.items);
-
-        buffer.clearRetainingCapacity();
     }
 }
 
