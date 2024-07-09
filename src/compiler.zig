@@ -7,7 +7,7 @@ const Chunk = @import("chunk.zig").Chunk;
 const OpCode = @import("chunk.zig").OpCode;
 const Value = @import("value.zig").Value;
 
-const DEBUG = @import("main.zig").DEBUG;
+const DEBUG_MODE = @import("main.zig").config.DEBUG_MODE;
 
 pub const Compiler = struct {
     scanner: *Scanner,
@@ -128,7 +128,7 @@ pub const Compiler = struct {
 
     fn end_compiler(self: *Compiler) void {
         self.emit_return();
-        if (comptime DEBUG) {
+        if (comptime DEBUG_MODE) {
             if (!self.parser.had_error) {
                 self.current_chunk().dissasemble_chunk("code");
             }

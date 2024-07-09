@@ -7,8 +7,8 @@ const OpCode = @import("chunk.zig").OpCode;
 const Value = @import("value.zig").Value;
 const Compiler = @import("compiler.zig").Compiler;
 
-const DEBUG = @import("main.zig").DEBUG;
-const STACK_MAX = 256;
+const DEBUG_MODE = @import("main.zig").config.DEBUG_MODE;
+const STACK_SIZE = @import("main.zig").config.STACK_SIZE;
 
 const VMError = error{
     CompileError,
@@ -16,20 +16,19 @@ const VMError = error{
 };
 
 pub const VM = struct {
-    // TODO: use optionals after vm api is finished
     chunk: *Chunk,
     ip: [*]u8,
-    stack: [STACK_MAX]Value = [_]Value{.uninit} ** STACK_MAX,
+    stack: [STACK_SIZE]Value = [_]Value{.uninit} ** STACK_SIZE,
     stack_top: [*]Value,
 
+    /// Must call reset_stack after creating VM
     pub fn create() VM {
         return VM{ .chunk = undefined, .ip = undefined, .stack_top = undefined };
     }
 
-    fn init_chunk(self: *VM, chunk: *Chunk) void {
+    fn init_with_chunk(self: *VM, chunk: *Chunk) void {
         self.chunk = chunk;
-        self.ip = chunk.code.items.ptr;
-        self.stack_top = &self.stack;
+        self.ip = self.chunk.code.items.ptr;
     }
 
     pub fn interpret(self: *VM, allocator: *const std.mem.Allocator, source: *[]const u8) !void {
@@ -40,16 +39,17 @@ pub const VM = struct {
             return VMError.CompileError;
         }
 
-        self.init_chunk(chunk);
+        self.init_with_chunk(chunk);
 
         const result = self.run();
         chunk.destroy();
+
         return result;
     }
 
     fn run(self: *VM) VMError!void {
         while (true) {
-            if (comptime DEBUG) {
+            if (comptime DEBUG_MODE) {
                 print("          ", .{});
                 var slot: [*]Value = &self.stack;
                 if (slot == self.stack_top) {
@@ -121,7 +121,11 @@ pub const VM = struct {
 
     inline fn push(self: *VM, value: Value) void {
         // asserting current_stack_size + sizeOf(Value) <= max_stack_size
-        assert(@intFromPtr(self.stack_top) - @intFromPtr(&self.stack) + @sizeOf(Value) <= @sizeOf([STACK_MAX]Value));
+        if (comptime DEBUG_MODE) {
+            if (@intFromPtr(self.stack_top) - @intFromPtr(&self.stack) + @sizeOf(Value) > @sizeOf([STACK_SIZE]Value)) {
+                std.debug.panic("stack overflow (stack size = {d})", .{STACK_SIZE});
+            }
+        }
 
         self.stack_top[0] = value;
         self.stack_top += 1;
@@ -145,7 +149,7 @@ pub const VM = struct {
         return hi | lo;
     }
 
-    fn reset_stack(self: *VM) void {
+    pub fn reset_stack(self: *VM) void {
         self.stack_top = &self.stack;
     }
 };

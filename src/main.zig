@@ -3,7 +3,7 @@ const Chunk = @import("chunk.zig").Chunk;
 const OpCode = @import("chunk.zig").OpCode;
 const Value = @import("value.zig").Value;
 const VM = @import("vm.zig").VM;
-pub const DEBUG = @import("config").debug_mode;
+pub const config = @import("config");
 
 pub fn main() !void {
     // Allocator setup
@@ -14,25 +14,38 @@ pub fn main() !void {
     var args = try std.process.argsWithAllocator(allocator);
     defer args.deinit();
 
-    var vm = VM.create();
-
     // skip exe name
     _ = args.next();
-    if (args.next()) |arg| {
-        try run_file(allocator, arg, &vm);
-    } else {
-        try repl();
+
+    const file_name = args.next();
+    if (file_name != null and file_name.?.len > 0) try run_file(allocator, file_name.?) else try repl(allocator);
+}
+
+fn repl(allocator: std.mem.Allocator) !void {
+    var vm = VM.create();
+    vm.reset_stack();
+
+    const stdin = std.io.getStdIn().reader();
+    const stdout = std.io.getStdOut().writer();
+    var buffer = std.ArrayList(u8).init(allocator);
+    defer buffer.deinit();
+
+    while (true) {
+        try stdout.print(">> ", .{});
+        stdin.streamUntilDelimiter(buffer.writer(), '\n', null) catch break;
+
+        try vm.interpret(&allocator, &buffer.items);
+
+        buffer.clearRetainingCapacity();
     }
 }
 
-fn repl() !void {
-    std.debug.print("repl todo", .{});
-}
-
-fn run_file(allocator: std.mem.Allocator, file_name: []const u8, vm: *VM) !void {
-    var source: []const u8 = try read_file(allocator, file_name);
+fn run_file(allocator: std.mem.Allocator, file_name: []const u8) !void {
+    var source: []u8 = try read_file(allocator, file_name);
     defer allocator.free(source);
 
+    var vm = VM.create();
+    vm.reset_stack();
     try vm.interpret(&allocator, &source);
 }
 

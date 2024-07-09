@@ -6,9 +6,12 @@ pub const bla = 5;
 // declaratively construct a build graph that will be executed by an external
 // runner.
 pub fn build(b: *std.Build) void {
-    const debug_mode = b.option(bool, "EBUG", "Enable debug mode") orelse false;
     const options = b.addOptions();
-    options.addOption(bool, "debug_mode", debug_mode);
+    const debug_mode = b.option(bool, "EBUG", "Enable debug mode") orelse false;
+    const stack_size: usize = b.option(usize, "stack", "Stack size (default=256)") orelse 256;
+
+    options.addOption(bool, "DEBUG_MODE", debug_mode);
+    options.addOption(usize, "STACK_SIZE", stack_size);
 
     // Standard target options allows the person running `zig build` to choose
     // what target to build for. Here we do not override the defaults, which
