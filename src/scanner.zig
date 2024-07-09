@@ -210,9 +210,14 @@ pub const Scanner = struct {
 
 pub const Token = struct {
     type: TokenType,
+    // TODO: use a slice fat pointer (with a [*]const u8 ptr and a len)
     start: [*]const u8,
     len: usize,
     line: u32,
+
+    pub fn show(self: *const Token) []const u8 {
+        return self.start[0..self.len];
+    }
 };
 
 pub const TokenType = enum {

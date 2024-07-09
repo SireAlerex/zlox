@@ -38,23 +38,23 @@ pub const Chunk = struct {
         self.allocator.destroy(self);
     }
 
-    fn len(self: *Chunk) usize {
+    fn len(self: *const Chunk) usize {
         return self.code.items.len;
     }
 
-    fn constants_len(self: *Chunk) usize {
+    fn constants_len(self: *const Chunk) usize {
         return self.constants.items.len;
     }
 
-    fn lines_len(self: *Chunk) usize {
+    fn lines_len(self: *const Chunk) usize {
         return self.lines.items.len;
     }
 
     pub fn write(self: *Chunk, byte: anytype, line: u32) !void {
         switch (@TypeOf(byte)) {
-            inline comptime_int, u8 => try self.code.append(self.allocator, byte),
-            usize => try self.code.append(self.allocator, @truncate(byte)),
-            OpCode => try self.code.append(self.allocator, @intFromEnum(byte)),
+            inline comptime_int, u8 => try self.code.append(self.allocator.*, byte),
+            usize => try self.code.append(self.allocator.*, @truncate(byte)),
+            OpCode => try self.code.append(self.allocator.*, @intFromEnum(byte)),
             else => unreachable,
         }
 
@@ -64,12 +64,12 @@ pub const Chunk = struct {
             last.* = Line{ .line = line, .count = last.count + 1 };
         } else {
             // append a new line with a base count of 1
-            try self.lines.append(self.allocator, Line{ .line = line, .count = 1 });
+            try self.lines.append(self.allocator.*, Line{ .line = line, .count = 1 });
         }
     }
 
     pub fn write_constant(self: *Chunk, value: Value, line: u32) !void {
-        try self.constants.append(self.allocator, value);
+        try self.constants.append(self.allocator.*, value);
         const index = self.constants_len() - 1;
         // const index = 256;
         if (index < std.math.maxInt(u8)) {
@@ -88,7 +88,7 @@ pub const Chunk = struct {
         }
     }
 
-    pub fn dissasemble_chunk(self: *Chunk, name: []const u8) void {
+    pub fn dissasemble_chunk(self: *const Chunk, name: []const u8) void {
         print("== {s} ==\n", .{name});
 
         var offset: u32 = 0;
@@ -97,7 +97,7 @@ pub const Chunk = struct {
         }
     }
 
-    pub fn disassemble_instruction(self: *Chunk, offset: u32) u32 {
+    pub fn disassemble_instruction(self: *const Chunk, offset: u32) u32 {
         print("{:0>4} ", .{offset});
         if (offset > 0 and self.get_line(offset).line == self.get_line(offset - 1).line) {
             print("   | ", .{});
@@ -122,16 +122,16 @@ pub const Chunk = struct {
         }
     }
 
-    fn get(self: *Chunk, offset: u32) u8 {
+    fn get(self: *const Chunk, offset: u32) u8 {
         return self.code.items.ptr[offset];
     }
 
-    pub fn get_constant(self: *Chunk, offset: u16) Value {
+    pub fn get_constant(self: *const Chunk, offset: u16) Value {
         assert(offset < self.constants_len());
         return self.constants.items.ptr[offset];
     }
 
-    fn get_line(self: *Chunk, offset: u32) Line {
+    fn get_line(self: *const Chunk, offset: u32) Line {
         var index = offset;
         for (self.lines.items) |line| {
             if (index < line.count) {
@@ -148,7 +148,7 @@ pub const Chunk = struct {
         return offset + 1;
     }
 
-    fn constant_instruction(self: *Chunk, name: []const u8, offset: u32) u32 {
+    fn constant_instruction(self: *const Chunk, name: []const u8, offset: u32) u32 {
         const byte = self.get(offset + 1);
         print("{s}{d: >8} -> '", .{ name, byte });
         self.get_constant(byte).print();
@@ -157,7 +157,7 @@ pub const Chunk = struct {
         return offset + 2;
     }
 
-    fn constant_long_instruction(self: *Chunk, name: []const u8, offset: u32) u32 {
+    fn constant_long_instruction(self: *const Chunk, name: []const u8, offset: u32) u32 {
         const hi = self.get(offset + 1);
         const lo = self.get(offset + 2);
         const index: u16 = (@as(u16, hi) << 8) | @as(u16, lo);

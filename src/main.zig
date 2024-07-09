@@ -14,50 +14,26 @@ pub fn main() !void {
     var args = try std.process.argsWithAllocator(allocator);
     defer args.deinit();
 
-    const chunk = try Chunk.init(&allocator);
-    defer chunk.destroy();
-
     var vm = VM.create();
-    vm.init_chunk(chunk);
-    defer vm.destroy();
 
-    // exe name
+    // skip exe name
     _ = args.next();
     if (args.next()) |arg| {
-        try run_file(allocator, arg, vm);
+        try run_file(allocator, arg, &vm);
     } else {
         try repl();
     }
-
-    // try chunk.write_constant(Value.new(1.2), 123);
-    // try chunk.write_constant(Value.new(3.4), 123);
-    // try chunk.write(OpCode.Add, 123);
-
-    // try chunk.write_constant(Value.new(5.6), 123);
-    // try chunk.write(OpCode.Div, 123);
-
-    // try chunk.write(OpCode.Negate, 123);
-
-    // try chunk.write(OpCode.Return, 123);
-
-    // chunk.dissasemble_chunk("test");
-
-    // chunk.show();
-    // size_struct(Chunk);
-
-    // try vm.interpret(chunk);
 }
 
 fn repl() !void {
     std.debug.print("repl todo", .{});
 }
 
-fn run_file(allocator: std.mem.Allocator, file_name: []const u8, vm: VM) !void {
+fn run_file(allocator: std.mem.Allocator, file_name: []const u8, vm: *VM) !void {
     var source: []const u8 = try read_file(allocator, file_name);
     defer allocator.free(source);
 
-    std.debug.print("file:\n'{s}'\n", .{source});
-    try vm.interpret(&source);
+    try vm.interpret(&allocator, &source);
 }
 
 fn read_file(allocator: std.mem.Allocator, file_name: []const u8) ![]u8 {

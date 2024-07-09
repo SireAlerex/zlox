@@ -25,23 +25,26 @@ pub const VM = struct {
     pub fn create() VM {
         return VM{ .chunk = undefined, .ip = undefined, .stack_top = undefined };
     }
-    pub fn destroy(_: *VM) void {}
 
-    pub fn init_chunk(self: *VM, chunk: *Chunk) void {
+    fn init_chunk(self: *VM, chunk: *Chunk) void {
         self.chunk = chunk;
         self.ip = chunk.code.items.ptr;
         self.stack_top = &self.stack;
     }
 
-    pub fn interpret_chunk(self: *VM, chunk: *Chunk) VMError!void {
-        self.chunk = chunk;
-        self.ip = chunk.code.items.ptr;
-        self.stack_top = &self.stack;
-        try self.run();
-    }
+    pub fn interpret(self: *VM, allocator: *const std.mem.Allocator, source: *[]const u8) !void {
+        const chunk = try Chunk.init(allocator);
 
-    pub fn interpret(self: *const VM, source: *[]const u8) !void {
-        try Compiler.compile(self.chunk.allocator, source);
+        if (!(try Compiler.compile(source, chunk))) {
+            chunk.destroy();
+            return VMError.CompileError;
+        }
+
+        self.init_chunk(chunk);
+
+        const result = self.run();
+        chunk.destroy();
+        return result;
     }
 
     fn run(self: *VM) VMError!void {
