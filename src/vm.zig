@@ -8,6 +8,8 @@ const Value = @import("value.zig").Value;
 const Compiler = @import("compiler.zig").Compiler;
 const Obj = @import("object.zig").Obj;
 const ObjType = @import("object.zig").ObjType;
+const ObjString = @import("object.zig").ObjString;
+const Table = @import("table.zig").Table;
 
 const DEBUG_MODE = @import("main.zig").config.DEBUG_MODE;
 const STACK_SIZE = @import("main.zig").config.STACK_SIZE;
@@ -22,6 +24,7 @@ pub const VM = struct {
     ip: [*]u8,
     stack: [STACK_SIZE]Value = [_]Value{.uninit} ** STACK_SIZE,
     stack_top: [*]Value,
+    strings: Table,
     objects: ?*Obj = null,
 
     // const values
@@ -29,9 +32,14 @@ pub const VM = struct {
     const TRUE = Value{ .boolean = true };
     const NIL = Value.nil;
 
-    /// Must call reset_stack after creating VM
+    /// Must call init after creating VM
     pub fn create() VM {
-        return VM{ .chunk = undefined, .ip = undefined, .stack_top = undefined };
+        return VM{ .chunk = undefined, .ip = undefined, .stack_top = undefined, .strings = .{} };
+    }
+
+    pub fn init(self: *VM, allocator: *const std.mem.Allocator) !void {
+        self.reset_stack();
+        try self.strings.init(allocator);
     }
 
     pub fn destroy(self: *VM) void {
@@ -41,6 +49,8 @@ pub const VM = struct {
             current_obj.?.destroy(self.chunk.allocator);
             current_obj = next;
         }
+
+        self.strings.free(self.chunk.allocator);
 
         self.chunk.destroy();
     }

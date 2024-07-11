@@ -18,7 +18,7 @@ pub const Value = union(enum) {
             .boolean => |b| std.io.getStdOut().writer().print("{any}", .{b}),
             .nil => std.io.getStdOut().writer().print("nil", .{}),
             .obj => |obj| obj.show(),
-            .uninit => unreachable,
+            else => unreachable,
         };
         _ = res catch unreachable;
     }
@@ -41,7 +41,7 @@ pub const Value = union(enum) {
             .boolean => "BOOLEAN",
             .obj => self.obj.show_type(),
             .nil => "NIL",
-            .uninit => unreachable,
+            else => unreachable,
         };
     }
 
@@ -50,13 +50,7 @@ pub const Value = union(enum) {
             .nil => self.* == .nil,
             .number => |n| self.* == .number and self.number == n,
             .boolean => |b| self.* == .boolean and self.boolean == b,
-            .obj => |obj| {
-                if (self.* != .obj) return false;
-
-                if (obj.type == .String and self.obj.type == .String) {
-                    return std.mem.eql(u8, self.obj.as(ObjString).slice(), obj.as(ObjString).slice());
-                }
-            },
+            .obj => |right_obj| self.* == .obj and self.obj == right_obj,
             else => unreachable,
         };
     }

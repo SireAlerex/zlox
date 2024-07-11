@@ -66,24 +66,43 @@ pub const ObjString = extern struct {
     obj: Obj,
     chars: [*]const u8,
     len: usize,
+    hash: u32,
 
-    pub fn alloc(allocator: *const std.mem.Allocator, chars: []const u8, vm: *VM) *ObjString {
+    pub fn alloc(allocator: *const std.mem.Allocator, chars: []const u8, hash: u32, vm: *VM) *ObjString {
         const obj_string = Obj.allocate(allocator, ObjType.String, ObjString, vm) catch unreachable;
         obj_string.chars = chars.ptr;
         obj_string.len = chars.len;
+        obj_string.hash = hash;
+
+        _ = vm.strings.insert(allocator, obj_string, Value.nil);
 
         return obj_string;
     }
 
     pub fn copy(allocator: *const std.mem.Allocator, chars: []const u8, vm: *VM) *ObjString {
+        const hash = hash_string(chars);
+        if (vm.strings.find_string(chars, hash)) |interned| {
+            return interned;
+        }
+
         const heap_chars = allocator.alloc(u8, chars.len) catch unreachable;
         @memcpy(heap_chars, chars.ptr);
 
-        return alloc(allocator, heap_chars, vm);
+        return alloc(allocator, heap_chars, hash, vm);
     }
 
     pub fn take(allocator: *const std.mem.Allocator, chars: []const u8, vm: *VM) *ObjString {
-        return alloc(allocator, chars, vm);
+        const hash = hash_string(chars);
+        if (vm.strings.find_string(chars, hash)) |interned| {
+            allocator.free(chars);
+            return interned;
+        }
+
+        return alloc(allocator, chars, hash, vm);
+    }
+
+    fn hash_string(chars: []const u8) u32 {
+        return std.hash.Fnv1a_32.hash(chars);
     }
 
     pub fn slice(self: *const ObjString) []const u8 {

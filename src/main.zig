@@ -25,7 +25,7 @@ pub fn main() !void {
 fn repl(allocator: std.mem.Allocator) !void {
     var vm = VM.create();
     defer vm.destroy();
-    vm.reset_stack();
+    try vm.init(&allocator);
 
     const stdin = std.io.getStdIn().reader();
     const stdout = std.io.getStdOut().writer();
@@ -51,7 +51,7 @@ fn run_file(allocator: std.mem.Allocator, file_name: []const u8) !void {
 
     var vm = VM.create();
     defer vm.destroy();
-    vm.reset_stack();
+    try vm.init(&allocator);
 
     vm.interpret(&allocator, &source) catch |e| exit_with_error(e);
 }
