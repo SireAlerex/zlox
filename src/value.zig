@@ -54,7 +54,7 @@ pub const Value = union(enum) {
                 if (self.* != .obj) return false;
 
                 if (obj.type == .String and self.obj.type == .String) {
-                    return std.mem.eql(u8, obj.as(ObjString).slice, self.obj.as(ObjString).slice);
+                    return std.mem.eql(u8, self.obj.as(ObjString).slice(), obj.as(ObjString).slice());
                 }
             },
             else => unreachable,
@@ -72,13 +72,13 @@ pub const Value = union(enum) {
             const left_string = left.obj.as(ObjString);
             const right_string = right.obj.as(ObjString);
 
-            const len = left_string.slice.len + right_string.slice.len;
+            const len = left_string.len + right_string.len;
             const chars = allocator.alloc(u8, len) catch unreachable;
             for (0..chars.len) |i| {
-                if (i < left_string.slice.len) {
-                    chars[i] = left_string.slice[i];
+                if (i < left_string.len) {
+                    chars[i] = left_string.chars[i];
                 } else {
-                    chars[i] = right_string.slice[i - left_string.slice.len];
+                    chars[i] = right_string.chars[i - left_string.len];
                 }
             }
 

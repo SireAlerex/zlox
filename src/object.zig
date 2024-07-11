@@ -2,14 +2,14 @@ const std = @import("std");
 const Value = @import("value.zig").Value;
 const VM = @import("vm.zig").VM;
 
-pub const Obj = struct {
+pub const Obj = extern struct {
     type: ObjType,
     next: ?*Obj,
 
     pub fn allocate(allocator: *const std.mem.Allocator, obj_type: ObjType, kind: type, vm: *VM) !*kind {
-        const x: *kind = try allocator.create(kind);
+        const ptr: *kind = try allocator.create(kind);
 
-        const obj_ptr: *Obj = @ptrCast(x);
+        const obj_ptr: *Obj = @ptrCast(ptr);
         obj_ptr.type = obj_type;
 
         // add to vm objects to track and free later
@@ -23,7 +23,7 @@ pub const Obj = struct {
         switch (self.type) {
             .String => {
                 const str: *const ObjString = @ptrCast(@alignCast(self));
-                try std.io.getStdOut().writer().print("{s}", .{str.slice});
+                try std.io.getStdOut().writer().print("{s}", .{str.slice()});
             },
         }
     }
@@ -32,7 +32,7 @@ pub const Obj = struct {
         switch (self.type) {
             .String => {
                 const str: *ObjString = @ptrCast(@alignCast(self));
-                allocator.free(str.slice);
+                allocator.free(str.slice());
                 allocator.destroy(str);
             },
         }
@@ -62,13 +62,15 @@ pub const ObjType = enum {
     }
 };
 
-pub const ObjString = struct {
+pub const ObjString = extern struct {
     obj: Obj,
-    slice: []const u8,
+    chars: [*]const u8,
+    len: usize,
 
     pub fn alloc(allocator: *const std.mem.Allocator, chars: []const u8, vm: *VM) *ObjString {
         const obj_string = Obj.allocate(allocator, ObjType.String, ObjString, vm) catch unreachable;
-        obj_string.slice = chars;
+        obj_string.chars = chars.ptr;
+        obj_string.len = chars.len;
 
         return obj_string;
     }
@@ -82,5 +84,9 @@ pub const ObjString = struct {
 
     pub fn take(allocator: *const std.mem.Allocator, chars: []const u8, vm: *VM) *ObjString {
         return alloc(allocator, chars, vm);
+    }
+
+    pub fn slice(self: *const ObjString) []const u8 {
+        return self.chars[0..self.len];
     }
 };

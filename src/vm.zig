@@ -54,7 +54,8 @@ pub const VM = struct {
         const chunk = try Chunk.init(allocator);
 
         if (!(try Compiler.compile(source, chunk, self))) {
-            chunk.destroy();
+            // still set bad chunk to destroy it
+            self.init_with_chunk(chunk);
             return VMError.CompileError;
         }
 
