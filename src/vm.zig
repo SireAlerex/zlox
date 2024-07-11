@@ -25,7 +25,9 @@ pub const VM = struct {
     stack: [STACK_SIZE]Value = [_]Value{.uninit} ** STACK_SIZE,
     stack_top: [*]Value,
     strings: Table,
+    globals: Table,
     objects: ?*Obj = null,
+    allocator: std.mem.Allocator,
 
     // const values
     const FALSE = Value{ .boolean = false };
@@ -34,25 +36,26 @@ pub const VM = struct {
 
     /// Must call init after creating VM
     pub fn create() VM {
-        return VM{ .chunk = undefined, .ip = undefined, .stack_top = undefined, .strings = .{} };
+        return VM{ .chunk = undefined, .ip = undefined, .stack_top = undefined, .strings = .{}, .globals = .{}, .allocator = undefined };
     }
 
     pub fn init(self: *VM, allocator: *const std.mem.Allocator) !void {
         self.reset_stack();
         try self.strings.init(allocator);
+        try self.globals.init(allocator);
+        self.allocator = allocator.*;
     }
 
     pub fn destroy(self: *VM) void {
         var current_obj: ?*Obj = self.objects;
         while (current_obj != null) {
             const next = current_obj.?.next;
-            current_obj.?.destroy(self.chunk.allocator);
+            current_obj.?.destroy(&self.allocator);
             current_obj = next;
         }
 
-        self.strings.free(self.chunk.allocator);
-
-        self.chunk.destroy();
+        self.strings.free(&self.allocator);
+        self.globals.free(&self.allocator);
     }
 
     fn init_with_chunk(self: *VM, chunk: *Chunk) void {
@@ -62,10 +65,9 @@ pub const VM = struct {
 
     pub fn interpret(self: *VM, allocator: *const std.mem.Allocator, source: *[]const u8) !void {
         const chunk = try Chunk.init(allocator);
+        defer chunk.destroy();
 
         if (!(try Compiler.compile(source, chunk, self))) {
-            // still set bad chunk to destroy it
-            self.init_with_chunk(chunk);
             return VMError.CompileError;
         }
 
@@ -76,7 +78,7 @@ pub const VM = struct {
         return result;
     }
 
-    fn run(self: *VM) VMError!void {
+    fn run(self: *VM) !void {
         while (true) {
             if (comptime DEBUG_MODE) {
                 print("          ", .{});
@@ -87,7 +89,7 @@ pub const VM = struct {
 
                 while (slot != self.stack_top) : (slot += 1) {
                     print("[ ", .{});
-                    slot[0].show();
+                    try slot[0].show();
                     print(" ]", .{});
                 }
                 print("\n", .{});
@@ -100,8 +102,6 @@ pub const VM = struct {
 
             switch (instruction) {
                 .Return => {
-                    self.pop().show();
-                    print("\n", .{});
                     return;
                 },
                 .Constant => {
@@ -132,7 +132,7 @@ pub const VM = struct {
                         return VMError.RuntimeError;
                     }
 
-                    self.push(Value.add(self.chunk.allocator, left, right, self));
+                    self.push(Value.add(&self.allocator, left, right, self));
                 },
                 .Sub => {
                     const right = self.pop();
@@ -226,11 +226,49 @@ pub const VM = struct {
 
                     self.push(Value{ .boolean = left.less_eq(right) });
                 },
+                .Print => {
+                    try self.pop().show();
+                    _ = try std.io.getStdOut().write("\n");
+                },
+                .Pop => _ = self.pop(),
+                .DefineGlobal => {
+                    const name = self.read_string_u8();
+                    _ = self.globals.insert(&self.allocator, name, self.peek(0));
+                    // pop only after being added to avoid problem with gc
+                    _ = self.pop();
+                },
+                .GetGlobal => {
+                    const name = self.read_string_u8();
+                    if (self.globals.get(name)) |value| {
+                        self.push(value);
+                    } else {
+                        self.runtime_error("Undefined variable '{s}'", .{name.slice()});
+                        return VMError.RuntimeError;
+                    }
+                },
+                .SetGlobal => {
+                    const name = self.read_string_u8();
+
+                    if (self.globals.insert(&self.allocator, name, self.peek(0))) {
+                        // delete if variable key didn't exist
+                        _ = self.globals.delete(name); // TODO: add check for deletion
+                        self.runtime_error("Undefined variable '{s}'", .{name.slice()});
+                        return VMError.RuntimeError;
+                    }
+                },
                 else => unreachable,
             }
         }
 
         return;
+    }
+
+    inline fn peek(self: *const VM, offset: usize) Value {
+        return (self.stack_top - 1 - offset)[0];
+    }
+
+    fn read_string_u8(self: *VM) *ObjString {
+        return self.chunk.get_constant(self.read_u8()).obj.as(ObjString);
     }
 
     inline fn push(self: *VM, value: Value) void {

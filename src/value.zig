@@ -12,15 +12,14 @@ pub const Value = union(enum) {
     nil,
     uninit,
 
-    pub fn show(self: *const Value) void {
-        const res = switch (self.*) {
-            .number => |x| std.io.getStdOut().writer().print("{d}", .{x}),
-            .boolean => |b| std.io.getStdOut().writer().print("{any}", .{b}),
-            .nil => std.io.getStdOut().writer().print("nil", .{}),
-            .obj => |obj| obj.show(),
+    pub fn show(self: *const Value) !void {
+        switch (self.*) {
+            .number => |x| try std.io.getStdOut().writer().print("{d}", .{x}),
+            .boolean => |b| try std.io.getStdOut().writer().print("{any}", .{b}),
+            .nil => _ = try std.io.getStdOut().write("nil"),
+            .obj => |obj| try obj.show(),
             else => unreachable,
-        };
-        _ = res catch unreachable;
+        }
     }
 
     pub fn new(input: anytype) Value {

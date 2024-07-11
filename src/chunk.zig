@@ -23,6 +23,11 @@ pub const OpCode = enum(u8) {
     GreaterEqual,
     Less,
     LessEqual,
+    Print,
+    Pop,
+    DefineGlobal,
+    GetGlobal,
+    SetGlobal,
     _,
 };
 
@@ -79,8 +84,7 @@ pub const Chunk = struct {
     }
 
     pub fn write_constant(self: *Chunk, value: Value, line: u32) !void {
-        try self.constants.append(self.allocator.*, value);
-        const index = self.constants_len() - 1;
+        const index = try self.make_constant(value);
         // const index = 256;
         if (index < std.math.maxInt(u8)) {
             try self.write(OpCode.Constant, line);
@@ -96,6 +100,11 @@ pub const Chunk = struct {
         } else {
             unreachable;
         }
+    }
+
+    pub fn make_constant(self: *Chunk, value: Value) !usize {
+        try self.constants.append(self.allocator.*, value);
+        return self.constants_len() - 1;
     }
 
     pub fn dissasemble_chunk(self: *const Chunk, name: []const u8) void {
@@ -135,6 +144,11 @@ pub const Chunk = struct {
             .GreaterEqual => return simple_instruction("OP_GREATER_EQUAL", offset),
             .Less => return simple_instruction("OP_LESS", offset),
             .LessEqual => return simple_instruction("OP_LESS_EQUAL", offset),
+            .Print => return simple_instruction("OP_PRINT", offset),
+            .Pop => return simple_instruction("OP_POP", offset),
+            .DefineGlobal => return self.constant_instruction("OP_DEFINE_GLOBAL", offset),
+            .GetGlobal => return self.constant_instruction("OP_GET_GLOBAL", offset),
+            .SetGlobal => return self.constant_instruction("OP_SET_GLOBAL", offset),
             else => {
                 print("Unknown opcode {}\n", .{instruction});
                 return offset + 1;
@@ -170,8 +184,8 @@ pub const Chunk = struct {
 
     fn constant_instruction(self: *const Chunk, name: []const u8, offset: u32) u32 {
         const byte = self.get(offset + 1);
-        print("{s}{d: >8} -> '", .{ name, byte });
-        self.get_constant(byte).show();
+        print("{s: <20}{d} -> '", .{ name, byte });
+        self.get_constant(byte).show() catch unreachable;
         print("'\n", .{});
 
         return offset + 2;
@@ -181,8 +195,8 @@ pub const Chunk = struct {
         const hi = self.get(offset + 1);
         const lo = self.get(offset + 2);
         const index: u16 = (@as(u16, hi) << 8) | @as(u16, lo);
-        print("{s}{d: >8} -> '", .{ name, index });
-        self.get_constant(index).show();
+        print("{s: <20}{d} -> '", .{ name, index });
+        self.get_constant(index).show() catch unreachable;
         print("'\n", .{});
 
         return offset + 3;

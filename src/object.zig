@@ -23,7 +23,7 @@ pub const Obj = extern struct {
         switch (self.type) {
             .String => {
                 const str: *const ObjString = @ptrCast(@alignCast(self));
-                try std.io.getStdOut().writer().print("{s}", .{str.slice()});
+                _ = try std.io.getStdOut().write(str.slice());
             },
         }
     }

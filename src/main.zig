@@ -72,18 +72,3 @@ fn exit_with_error(err: anytype) void {
         std.debug.print("Encountered an error: {any}\n", .{err});
     }
 }
-
-// debug function to check size of a struct
-fn size_struct(kind: type) void {
-    std.debug.print("sizeof Chunk:{any}\n", .{@sizeOf(kind)});
-    const fields = @typeInfo(kind).Struct.fields;
-    inline for (fields) |field| {
-        std.debug.print("{s}: size={any}\n", .{ field.name, @sizeOf(field.type) });
-
-        if (field.type == @as(type, *const std.mem.Allocator)) continue;
-        const inner_fields = @typeInfo(field.type).Struct.fields;
-        inline for (inner_fields) |inner_field| {
-            std.debug.print("\t{s}: size={any}\n", .{ inner_field.name, @sizeOf(inner_field.type) });
-        }
-    }
-}

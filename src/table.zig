@@ -37,20 +37,20 @@ pub const Table = struct {
         return is_new_key;
     }
 
-    fn get(self: *Table, key: *ObjString) ?Value {
+    pub fn get(self: *Table, key: *ObjString) ?Value {
         if (self.count == 0) return null;
 
         const entry = self.find(key);
-        return if (entry.key) entry.value else null;
+        return if (entry.key != null) entry.value else null;
     }
 
-    fn delete(self: *Table, key: *ObjString) bool {
+    pub fn delete(self: *Table, key: *ObjString) bool {
         if (self.count == 0) return false;
 
         // find the entry
         var entry = self.find(key);
 
-        if (entry.key) {
+        if (entry.key != null) {
             // place the tombstone
             entry.key = null;
             entry.value = Value.new(true);
