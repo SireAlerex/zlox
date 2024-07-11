@@ -6,6 +6,8 @@ const Chunk = chunk_mod.Chunk;
 const OpCode = @import("chunk.zig").OpCode;
 const Value = @import("value.zig").Value;
 const Compiler = @import("compiler.zig").Compiler;
+const Obj = @import("object.zig").Obj;
+const ObjType = @import("object.zig").ObjType;
 
 const DEBUG_MODE = @import("main.zig").config.DEBUG_MODE;
 const STACK_SIZE = @import("main.zig").config.STACK_SIZE;
@@ -20,6 +22,7 @@ pub const VM = struct {
     ip: [*]u8,
     stack: [STACK_SIZE]Value = [_]Value{.uninit} ** STACK_SIZE,
     stack_top: [*]Value,
+    objects: ?*Obj = null,
 
     // const values
     const FALSE = Value{ .boolean = false };
@@ -31,6 +34,17 @@ pub const VM = struct {
         return VM{ .chunk = undefined, .ip = undefined, .stack_top = undefined };
     }
 
+    pub fn destroy(self: *VM) void {
+        var current_obj: ?*Obj = self.objects;
+        while (current_obj != null) {
+            const next = current_obj.?.next;
+            current_obj.?.destroy(self.chunk.allocator);
+            current_obj = next;
+        }
+
+        self.chunk.destroy();
+    }
+
     fn init_with_chunk(self: *VM, chunk: *Chunk) void {
         self.chunk = chunk;
         self.ip = self.chunk.code.items.ptr;
@@ -39,7 +53,7 @@ pub const VM = struct {
     pub fn interpret(self: *VM, allocator: *const std.mem.Allocator, source: *[]const u8) !void {
         const chunk = try Chunk.init(allocator);
 
-        if (!(try Compiler.compile(source, chunk))) {
+        if (!(try Compiler.compile(source, chunk, self))) {
             chunk.destroy();
             return VMError.CompileError;
         }
@@ -47,7 +61,6 @@ pub const VM = struct {
         self.init_with_chunk(chunk);
 
         const result = self.run();
-        chunk.destroy();
 
         return result;
     }
@@ -103,13 +116,12 @@ pub const VM = struct {
                     const right = self.pop();
                     var left = self.pop();
 
-                    if (right != .number or left != .number) {
-                        self.runtime_error("Add operands must be number, got {s} + {s}", .{ left.get_type(), right.get_type() });
+                    if (!((right == .number and left == .number) or (right.is_obj_type(ObjType.String) and left.is_obj_type(ObjType.String)))) {
+                        self.runtime_error("Add operands must be two numbers or two strings, got {s} + {s}", .{ left.get_type(), right.get_type() });
                         return VMError.RuntimeError;
                     }
 
-                    left.add(right);
-                    self.push(left);
+                    self.push(Value.add(self.chunk.allocator, left, right, self));
                 },
                 .Sub => {
                     const right = self.pop();

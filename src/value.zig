@@ -1,19 +1,26 @@
 const std = @import("std");
 const assert = std.debug.assert;
+const Obj = @import("object.zig").Obj;
+const ObjString = @import("object.zig").ObjString;
+const ObjType = @import("object.zig").ObjType;
+const VM = @import("vm.zig").VM;
 
 pub const Value = union(enum) {
     number: f64,
     boolean: bool,
+    obj: *Obj,
     nil,
     uninit,
 
     pub fn show(self: *const Value) void {
-        switch (self.*) {
-            .number => |x| std.debug.print("{d}", .{x}),
-            .boolean => |b| std.debug.print("{any}", .{b}),
-            .nil => std.debug.print("nil", .{}),
+        const res = switch (self.*) {
+            .number => |x| std.io.getStdOut().writer().print("{d}", .{x}),
+            .boolean => |b| std.io.getStdOut().writer().print("{any}", .{b}),
+            .nil => std.io.getStdOut().writer().print("nil", .{}),
+            .obj => |obj| obj.show(),
             .uninit => unreachable,
-        }
+        };
+        _ = res catch unreachable;
     }
 
     pub fn new(input: anytype) Value {
@@ -32,6 +39,7 @@ pub const Value = union(enum) {
         return switch (self.*) {
             .number => "NUMBER",
             .boolean => "BOOLEAN",
+            .obj => self.obj.show_type(),
             .nil => "NIL",
             .uninit => unreachable,
         };
@@ -42,50 +50,72 @@ pub const Value = union(enum) {
             .nil => self.* == .nil,
             .number => |n| self.* == .number and self.number == n,
             .boolean => |b| self.* == .boolean and self.boolean == b,
+            .obj => |obj| {
+                if (self.* != .obj) return false;
+
+                if (obj.type == .String and self.obj.type == .String) {
+                    return std.mem.eql(u8, obj.as(ObjString).slice, self.obj.as(ObjString).slice);
+                }
+            },
             else => unreachable,
         };
     }
 
     pub inline fn negate(self: *Value) void {
-        assert(self.* == .number);
         self.number = -self.number;
     }
 
-    pub inline fn add(self: *Value, right: Value) void {
-        assert(self.* == .number and right == .number);
-        self.number += right.number;
+    pub fn add(allocator: *const std.mem.Allocator, left: Value, right: Value, vm: *VM) Value {
+        if (left == .number) {
+            return Value{ .number = left.number + right.number };
+        } else { // must be String
+            const left_string = left.obj.as(ObjString);
+            const right_string = right.obj.as(ObjString);
+
+            const len = left_string.slice.len + right_string.slice.len;
+            const chars = allocator.alloc(u8, len) catch unreachable;
+            for (0..chars.len) |i| {
+                if (i < left_string.slice.len) {
+                    chars[i] = left_string.slice[i];
+                } else {
+                    chars[i] = right_string.slice[i - left_string.slice.len];
+                }
+            }
+
+            const str = ObjString.take(allocator, chars, vm);
+            return Value{ .obj = @ptrCast(str) };
+        }
     }
+
     pub inline fn sub(self: *Value, right: Value) void {
-        assert(self.* == .number and right == .number);
         self.number -= right.number;
     }
+
     pub inline fn mul(self: *Value, right: Value) void {
-        assert(self.* == .number and right == .number);
         self.number *= right.number;
     }
 
     pub inline fn div(self: *Value, right: Value) void {
-        assert(self.* == .number and right == .number);
         self.number /= right.number;
     }
 
-    pub inline fn greater(self: *Value, right: Value) bool {
-        assert(self.* == .number and right == .number);
+    pub inline fn greater(self: *const Value, right: Value) bool {
         return self.number > right.number;
     }
 
-    pub inline fn greater_eq(self: *Value, right: Value) bool {
-        assert(self.* == .number and right == .number);
+    pub inline fn greater_eq(self: *const Value, right: Value) bool {
         return self.number >= right.number;
     }
 
-    pub inline fn less(self: *Value, right: Value) bool {
-        assert(self.* == .number and right == .number);
+    pub inline fn less(self: *const Value, right: Value) bool {
         return self.number < right.number;
     }
 
-    pub inline fn less_eq(self: *Value, right: Value) bool {
-        assert(self.* == .number and right == .number);
+    pub inline fn less_eq(self: *const Value, right: Value) bool {
         return self.number <= right.number;
+    }
+
+    pub inline fn is_obj_type(self: *const Value, kind: ObjType) bool {
+        return self.* == .obj and self.obj.type == kind;
     }
 };

@@ -6,6 +6,10 @@ const TokenType = scanner_mod.TokenType;
 const Chunk = @import("chunk.zig").Chunk;
 const OpCode = @import("chunk.zig").OpCode;
 const Value = @import("value.zig").Value;
+const ObjString = @import("object.zig").ObjString;
+const ObjType = @import("object.zig").ObjType;
+const Obj = @import("object.zig").Obj;
+const VM = @import("vm.zig").VM;
 
 const DEBUG_MODE = @import("main.zig").config.DEBUG_MODE;
 
@@ -13,14 +17,15 @@ pub const Compiler = struct {
     scanner: *Scanner,
     parser: Parser,
     chunk: *Chunk,
+    vm: *VM,
 
-    pub fn compile(source: *[]const u8, chunk: *Chunk) !bool {
+    pub fn compile(source: *[]const u8, chunk: *Chunk, vm: *VM) !bool {
         const scanner = try Scanner.init(chunk.allocator, source);
         defer scanner.deinit();
 
         const parser = Parser{ .current = undefined, .previous = undefined, .had_error = false, .panic_mode = false };
 
-        var compiler = Compiler{ .scanner = scanner, .parser = parser, .chunk = chunk };
+        var compiler = Compiler{ .scanner = scanner, .parser = parser, .chunk = chunk, .vm = vm };
 
         return compiler.compile_inner();
     }
@@ -110,6 +115,11 @@ pub const Compiler = struct {
     fn number(self: *Compiler) void {
         const value = std.fmt.parseFloat(f64, self.parser.previous.str) catch unreachable;
         self.emit_constant(Value.new(value));
+    }
+
+    fn string(self: *Compiler) void {
+        const str = ObjString.copy(self.chunk.allocator, self.parser.previous.str.ptr[1 .. self.parser.previous.str.len - 1], self.vm);
+        self.emit_constant(Value{ .obj = @ptrCast(str) });
     }
 
     fn emit_constant(self: *Compiler, value: Value) void {
@@ -216,6 +226,7 @@ pub const Compiler = struct {
             rules_inner[@intFromEnum(TokenType.GreaterEqual)] = ParseRule{ .infix = binary, .precedence = Precedence.Comparison };
             rules_inner[@intFromEnum(TokenType.Less)] = ParseRule{ .infix = binary, .precedence = Precedence.Comparison };
             rules_inner[@intFromEnum(TokenType.LessEqual)] = ParseRule{ .infix = binary, .precedence = Precedence.Comparison };
+            rules_inner[@intFromEnum(TokenType.String)] = ParseRule{ .prefix = string };
 
             return rules_inner;
         }
