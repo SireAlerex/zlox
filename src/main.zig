@@ -41,19 +41,19 @@ fn repl(allocator: std.mem.Allocator) !void {
         // skip "enter"
         if (buffer.items.len == 0 or buffer.items.ptr[0] == '\n' or buffer.items.ptr[0] == '\r') continue;
 
-        vm.interpret(&allocator, &buffer.items) catch |e| exit_with_error(e);
+        vm.interpret(&allocator, &buffer.items, null) catch |e| exit_with_error(e);
     }
 }
 
-fn run_file(allocator: std.mem.Allocator, file_name: []const u8) !void {
-    var source: []u8 = try read_file(allocator, file_name);
+fn run_file(allocator: std.mem.Allocator, file: []const u8) !void {
+    var source: []u8 = try read_file(allocator, file);
     defer allocator.free(source);
 
     var vm = VM.create();
     defer vm.destroy();
     try vm.init(&allocator);
 
-    vm.interpret(&allocator, &source) catch |e| exit_with_error(e);
+    vm.interpret(&allocator, &source, file) catch |e| exit_with_error(e);
 }
 
 fn read_file(allocator: std.mem.Allocator, file_name: []const u8) ![]u8 {
