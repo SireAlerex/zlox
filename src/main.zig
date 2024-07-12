@@ -65,10 +65,18 @@ fn read_file(allocator: std.mem.Allocator, file_name: []const u8) ![]u8 {
 
 fn exit_with_error(err: anytype) void {
     if (err == VMError.RuntimeError) {
-        std.debug.print("VM stopped execution because of a runtime error\n", .{});
+        if (comptime config.TEST_MODE) {
+            std.os.linux.exit(70);
+        } else {
+            std.debug.print("VM stopped execution because of a runtime error\n", .{});
+        }
     } else if (err == VMError.CompileError) {
-        std.debug.print("VM could not execute code because of a compilation error\n", .{});
+        if (comptime config.TEST_MODE) {
+            std.os.linux.exit(65);
+        } else {
+            std.debug.print("VM could not execute code because of a compilation error\n", .{});
+        }
     } else {
-        std.debug.print("Encountered an error: {any}\n", .{err});
+        if (comptime !config.TEST_MODE) std.debug.print("Encountered an error: {any}\n", .{err});
     }
 }

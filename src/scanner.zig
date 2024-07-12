@@ -139,7 +139,7 @@ pub const Scanner = struct {
             _ = self.advance();
         }
 
-        if (self.is_at_end()) return self.error_token("Unterminated string", .{});
+        if (self.is_at_end()) return self.error_token("Unterminated string.", .{});
 
         _ = self.advance();
         return self.make_token(TokenType.String);

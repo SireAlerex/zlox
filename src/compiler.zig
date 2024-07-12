@@ -42,10 +42,10 @@ pub const Compiler = struct {
     }
 
     fn var_declaration(self: *Compiler) void {
-        const index = self.parse_variable("Expect variable name");
+        const index = self.parse_variable("Expect variable name.");
 
         if (self.match(TokenType.Equal)) self.expression() else self.emit_byte(OpCode.Nil);
-        self.consume(TokenType.Semicolon, "Expect ';' after variable declaration");
+        self.consume(TokenType.Semicolon, "Expect ';' after variable declaration.");
 
         self.chunk.write_constant(index, self.parser.previous.line, OpCode.DefineGlobal, OpCode.DefineGlobalLong) catch unreachable;
     }
@@ -64,7 +64,7 @@ pub const Compiler = struct {
         self.expression();
         // TODO: try if consuming semicolon is necessary
         // _ = self.match(TokenType.Semicolon);
-        self.consume(TokenType.Semicolon, "Expect ';' after value");
+        self.consume(TokenType.Semicolon, "Expect ';' after value.");
         self.emit_byte(OpCode.Pop);
     }
 
@@ -139,7 +139,7 @@ pub const Compiler = struct {
         if (prefix_rule) |prefix| {
             prefix(self, can_assign);
         } else {
-            self.parser.error_at_previous("Expect expression");
+            self.parser.error_at_previous("Expect expression.");
             return;
         }
 
@@ -153,7 +153,7 @@ pub const Compiler = struct {
             }
         }
 
-        if (can_assign and self.match(TokenType.Equal)) self.parser.error_at_previous("Invalid assignment target");
+        if (can_assign and self.match(TokenType.Equal)) self.parser.error_at_previous("Invalid assignment target.");
     }
 
     fn grouping(self: *Compiler, _: bool) void {
@@ -277,7 +277,7 @@ pub const Compiler = struct {
             switch (token.type) {
                 .EOF => std.debug.print(" at end", .{}),
                 .Error => {},
-                else => std.debug.print(" at {s}", .{token.str}),
+                else => std.debug.print(" at '{s}'", .{token.str}),
             }
 
             std.debug.print(": {s}\n", .{message});

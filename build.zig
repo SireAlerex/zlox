@@ -8,9 +8,11 @@ pub const bla = 5;
 pub fn build(b: *std.Build) void {
     const options = b.addOptions();
     const debug_mode = b.option(bool, "EBUG", "Enable debug mode") orelse false;
+    const test_mode = b.option(bool, "test", "Enable test mode (to run the Lox test suite)") orelse false;
     const stack_size: usize = b.option(usize, "stack", "Stack size (default=256)") orelse 256;
 
     options.addOption(bool, "DEBUG_MODE", debug_mode);
+    options.addOption(bool, "TEST_MODE", test_mode);
     options.addOption(usize, "STACK_SIZE", stack_size);
 
     // Standard target options allows the person running `zig build` to choose

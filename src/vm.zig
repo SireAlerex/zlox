@@ -11,8 +11,7 @@ const ObjType = @import("object.zig").ObjType;
 const ObjString = @import("object.zig").ObjString;
 const Table = @import("table.zig").Table;
 
-const DEBUG_MODE = @import("main.zig").config.DEBUG_MODE;
-const STACK_SIZE = @import("main.zig").config.STACK_SIZE;
+const config = @import("main.zig").config;
 
 pub const VMError = error{
     CompileError,
@@ -22,7 +21,7 @@ pub const VMError = error{
 pub const VM = struct {
     chunk: *Chunk,
     ip: [*]u8,
-    stack: [STACK_SIZE]Value = [_]Value{.uninit} ** STACK_SIZE,
+    stack: [config.STACK_SIZE]Value = [_]Value{.uninit} ** config.STACK_SIZE,
     stack_top: [*]Value,
     strings: Table,
     globals: Table,
@@ -74,7 +73,7 @@ pub const VM = struct {
         self.init_with_chunk(chunk);
 
         const result = self.run(file);
-        if (comptime DEBUG_MODE) print("Instruction count={d}", .{instructions});
+        if (comptime config.DEBUG_MODE) print("Instruction count: {d}\n", .{instructions});
 
         return result;
     }
@@ -82,10 +81,10 @@ pub const VM = struct {
     var instructions: u64 = 0;
 
     fn run(self: *VM, file: ?[]const u8) !void {
-        if (comptime DEBUG_MODE) instructions = 0;
+        if (comptime config.DEBUG_MODE) instructions = 0;
 
         while (true) {
-            if (comptime DEBUG_MODE) {
+            if (comptime config.DEBUG_MODE) {
                 instructions += 1;
                 print("          ", .{});
                 var slot: [*]Value = &self.stack;
@@ -122,7 +121,9 @@ pub const VM = struct {
                     self.stack_top -= 1;
 
                     if (self.stack_top[0] != .number) {
-                        self.runtime_error("Negate operand must be a number, got {s}", .{self.stack_top[0].get_type()}, file);
+                        if (comptime config.TEST_MODE) {
+                            self.runtime_error("Operand must be a number.", .{}, file);
+                        } else self.runtime_error("Negate operand must be a number, got {s}", .{self.stack_top[0].get_type()}, file);
                         return VMError.RuntimeError;
                     }
                     self.stack_top[0].negate();
@@ -134,7 +135,9 @@ pub const VM = struct {
                     var left = self.pop();
 
                     if (!((right == .number and left == .number) or (right.is_obj_type(ObjType.String) and left.is_obj_type(ObjType.String)))) {
-                        self.runtime_error("Add operands must be two numbers or two strings, got {s} + {s}", .{ left.get_type(), right.get_type() }, file);
+                        if (comptime config.TEST_MODE) {
+                            self.runtime_error("Operands must be two numbers or two strings.", .{}, file);
+                        } else self.runtime_error("Add operands must be two numbers or two strings, got {s} + {s}", .{ left.get_type(), right.get_type() }, file);
                         return VMError.RuntimeError;
                     }
 
@@ -145,7 +148,9 @@ pub const VM = struct {
                     var left = self.pop();
 
                     if (right != .number or left != .number) {
-                        self.runtime_error("Sub operands must be number, got {s} - {s}", .{ left.get_type(), right.get_type() }, file);
+                        if (comptime config.TEST_MODE) {
+                            self.runtime_error("Operands must be numbers.", .{}, file);
+                        } else self.runtime_error("Sub operands must be number, got {s} - {s}", .{ left.get_type(), right.get_type() }, file);
                         return VMError.RuntimeError;
                     }
 
@@ -157,7 +162,9 @@ pub const VM = struct {
                     var left = self.pop();
 
                     if (right != .number or left != .number) {
-                        self.runtime_error("Mul operands must be number, got {s} * {s}", .{ left.get_type(), right.get_type() }, file);
+                        if (comptime config.TEST_MODE) {
+                            self.runtime_error("Operands must be numbers.", .{}, file);
+                        } else self.runtime_error("Mul operands must be number, got {s} - {s}", .{ left.get_type(), right.get_type() }, file);
                         return VMError.RuntimeError;
                     }
 
@@ -169,7 +176,9 @@ pub const VM = struct {
                     var left = self.pop();
 
                     if (right != .number or left != .number) {
-                        self.runtime_error("Div operands must be number, got {s} / {s}", .{ left.get_type(), right.get_type() }, file);
+                        if (comptime config.TEST_MODE) {
+                            self.runtime_error("Operands must be numbers.", .{}, file);
+                        } else self.runtime_error("Div operands must be number, got {s} - {s}", .{ left.get_type(), right.get_type() }, file);
                         return VMError.RuntimeError;
                     }
 
@@ -193,7 +202,9 @@ pub const VM = struct {
                     var left = self.pop();
 
                     if (right != .number or left != .number) {
-                        self.runtime_error("Greater operands must be number, got {s} > {s}", .{ left.get_type(), right.get_type() }, file);
+                        if (comptime config.TEST_MODE) {
+                            self.runtime_error("Operands must be numbers.", .{}, file);
+                        } else self.runtime_error("Greater operands must be number, got {s} - {s}", .{ left.get_type(), right.get_type() }, file);
                         return VMError.RuntimeError;
                     }
 
@@ -204,7 +215,9 @@ pub const VM = struct {
                     var left = self.pop();
 
                     if (right != .number or left != .number) {
-                        self.runtime_error("GreaterEqual operands must be number, got {s} >= {s}", .{ left.get_type(), right.get_type() }, file);
+                        if (comptime config.TEST_MODE) {
+                            self.runtime_error("Operands must be numbers.", .{}, file);
+                        } else self.runtime_error("GreaterEqual operands must be number, got {s} - {s}", .{ left.get_type(), right.get_type() }, file);
                         return VMError.RuntimeError;
                     }
 
@@ -215,7 +228,9 @@ pub const VM = struct {
                     var left = self.pop();
 
                     if (right != .number or left != .number) {
-                        self.runtime_error("Less operands must be number, got {s} < {s}", .{ left.get_type(), right.get_type() }, file);
+                        if (comptime config.TEST_MODE) {
+                            self.runtime_error("Operands must be numbers.", .{}, file);
+                        } else self.runtime_error("Less operands must be number, got {s} - {s}", .{ left.get_type(), right.get_type() }, file);
                         return VMError.RuntimeError;
                     }
 
@@ -226,7 +241,9 @@ pub const VM = struct {
                     var left = self.pop();
 
                     if (right != .number or left != .number) {
-                        self.runtime_error("LessEqual operands must be number, got {s} <= {s}", .{ left.get_type(), right.get_type() }, file);
+                        if (comptime config.TEST_MODE) {
+                            self.runtime_error("Operands must be numbers.", .{}, file);
+                        } else self.runtime_error("LessEqual operands must be number, got {s} - {s}", .{ left.get_type(), right.get_type() }, file);
                         return VMError.RuntimeError;
                     }
 
@@ -254,7 +271,7 @@ pub const VM = struct {
                     if (self.globals.get(name)) |value| {
                         self.push(value);
                     } else {
-                        self.runtime_error("Undefined variable '{s}'", .{name.slice()}, file);
+                        self.runtime_error("Undefined variable '{s}'.", .{name.slice()}, file);
                         return VMError.RuntimeError;
                     }
                 },
@@ -263,7 +280,7 @@ pub const VM = struct {
                     if (self.globals.get(name)) |value| {
                         self.push(value);
                     } else {
-                        self.runtime_error("Undefined variable '{s}'", .{name.slice()}, file);
+                        self.runtime_error("Undefined variable '{s}'.", .{name.slice()}, file);
                         return VMError.RuntimeError;
                     }
                 },
@@ -273,7 +290,7 @@ pub const VM = struct {
                     if (self.globals.insert(&self.allocator, name, self.peek(0))) {
                         // delete if variable key didn't exist
                         const ret = self.globals.delete(name);
-                        self.runtime_error("Undefined variable '{s}'", .{name.slice()}, file);
+                        self.runtime_error("Undefined variable '{s}'.", .{name.slice()}, file);
                         if (!ret) self.runtime_error("(also had a problem during global deletion)", .{}, file);
                         return VMError.RuntimeError;
                     }
@@ -284,7 +301,7 @@ pub const VM = struct {
                     if (self.globals.insert(&self.allocator, name, self.peek(0))) {
                         // delete if variable key didn't exist
                         const ret = self.globals.delete(name);
-                        self.runtime_error("Undefined variable '{s}'", .{name.slice()}, file);
+                        self.runtime_error("Undefined variable '{s}'.", .{name.slice()}, file);
                         if (!ret) self.runtime_error("(also had a problem during global deletion)", .{}, file);
                         return VMError.RuntimeError;
                     }
@@ -309,10 +326,10 @@ pub const VM = struct {
     }
 
     inline fn push(self: *VM, value: Value) void {
-        // asserting current_stack_size + sizeOf(Value) <= max_stack_size
-        if (comptime DEBUG_MODE) {
-            if (@intFromPtr(self.stack_top) - @intFromPtr(&self.stack) + @sizeOf(Value) > @sizeOf([STACK_SIZE]Value)) {
-                std.debug.panic("stack overflow (stack size = {d})", .{STACK_SIZE});
+        // asserting current_config.STACK_SIZE + sizeOf(Value) <= max_config.STACK_SIZE
+        if (comptime config.DEBUG_MODE) {
+            if (@intFromPtr(self.stack_top) - @intFromPtr(&self.stack) + @sizeOf(Value) > @sizeOf([config.STACK_SIZE]Value)) {
+                std.debug.panic("stack overflow (stack size = {d})", .{config.STACK_SIZE});
             }
         }
 
@@ -342,13 +359,13 @@ pub const VM = struct {
         self.stack_top = &self.stack;
     }
 
-    fn runtime_error(self: *VM, comptime fmt: []const u8, args: anytype, maybe_file: ?[]const u8) void {
+    fn runtime_error(self: *VM, comptime fmt: []const u8, args: anytype, file: ?[]const u8) void {
         print(fmt, args);
         print("\n", .{});
 
         const instruction = @intFromPtr(self.ip) - @intFromPtr(self.chunk.code.items.ptr) - 1;
         const line = self.chunk.get_line(@truncate(instruction)).line;
-        const source = if (maybe_file) |file| file else "script";
+        const source = if (file != null and !config.TEST_MODE) file.? else "script";
         print("[line {d}] in {s}\n", .{ line, source });
         self.reset_stack();
     }
