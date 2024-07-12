@@ -42,12 +42,12 @@ pub const Compiler = struct {
     }
 
     fn var_declaration(self: *Compiler) void {
-        const global = self.parse_variable("Expect variable name");
+        const index = self.parse_variable("Expect variable name");
 
         if (self.match(TokenType.Equal)) self.expression() else self.emit_byte(OpCode.Nil);
         self.consume(TokenType.Semicolon, "Expect ';' after variable declaration");
 
-        self.emit_bytes(OpCode.DefineGlobal, global);
+        self.chunk.write_constant(index, self.parser.previous.line, OpCode.DefineGlobal, OpCode.DefineGlobalLong) catch unreachable;
     }
 
     fn declaration(self: *Compiler) void {
@@ -161,14 +161,14 @@ pub const Compiler = struct {
         self.consume(TokenType.RParen, "Expect ')' after expression");
     }
 
-    fn parse_variable(self: *Compiler, message: []const u8) u8 {
+    fn parse_variable(self: *Compiler, message: []const u8) usize {
         self.consume(TokenType.Identifier, message);
         return self.identifier_constant(&self.parser.previous);
     }
 
-    fn identifier_constant(self: *Compiler, name: *const Token) u8 {
+    fn identifier_constant(self: *Compiler, name: *const Token) usize {
         const str = ObjString.copy(self.chunk.allocator, name.str.ptr[0..name.str.len], self.vm);
-        return @truncate(self.chunk.make_constant(Value{ .obj = @ptrCast(str) }) catch unreachable);
+        return self.chunk.make_constant(Value{ .obj = @ptrCast(str) }) catch unreachable;
     }
 
     fn number(self: *Compiler, _: bool) void {
@@ -186,18 +186,19 @@ pub const Compiler = struct {
     }
 
     fn named_variable(self: *Compiler, name: Token, can_assign: bool) void {
-        const arg = self.identifier_constant(&name);
+        const index = self.identifier_constant(&name);
 
         if (can_assign and self.match(TokenType.Equal)) {
             self.expression();
-            self.emit_bytes(OpCode.SetGlobal, arg);
+            self.chunk.write_constant(index, self.parser.previous.line, OpCode.SetGlobal, OpCode.SetGlobalLong) catch unreachable;
         } else {
-            self.emit_bytes(OpCode.GetGlobal, arg);
+            self.chunk.write_constant(index, self.parser.previous.line, OpCode.GetGlobal, OpCode.GetGlobalLong) catch unreachable;
         }
     }
 
     fn emit_constant(self: *Compiler, value: Value) void {
-        self.chunk.write_constant(value, self.parser.previous.line) catch unreachable;
+        const index = self.chunk.make_constant(value) catch unreachable;
+        self.chunk.write_constant(index, self.parser.previous.line, OpCode.Constant, OpCode.ConstantLong) catch unreachable;
     }
 
     fn advance(self: *Compiler) void {

@@ -74,13 +74,19 @@ pub const VM = struct {
         self.init_with_chunk(chunk);
 
         const result = self.run(file);
+        if (comptime DEBUG_MODE) print("Instruction count={d}", .{instructions});
 
         return result;
     }
 
+    var instructions: u64 = 0;
+
     fn run(self: *VM, file: ?[]const u8) !void {
+        if (comptime DEBUG_MODE) instructions = 0;
+
         while (true) {
             if (comptime DEBUG_MODE) {
+                instructions += 1;
                 print("          ", .{});
                 var slot: [*]Value = &self.stack;
                 if (slot == self.stack_top) {
@@ -237,8 +243,23 @@ pub const VM = struct {
                     // pop only after being added to avoid problem with gc
                     _ = self.pop();
                 },
+                .DefineGlobalLong => {
+                    const name = self.read_string_u16();
+                    _ = self.globals.insert(&self.allocator, name, self.peek(0));
+                    // pop only after being added to avoid problem with gc
+                    _ = self.pop();
+                },
                 .GetGlobal => {
                     const name = self.read_string_u8();
+                    if (self.globals.get(name)) |value| {
+                        self.push(value);
+                    } else {
+                        self.runtime_error("Undefined variable '{s}'", .{name.slice()}, file);
+                        return VMError.RuntimeError;
+                    }
+                },
+                .GetGlobalLong => {
+                    const name = self.read_string_u16();
                     if (self.globals.get(name)) |value| {
                         self.push(value);
                     } else {
@@ -251,8 +272,20 @@ pub const VM = struct {
 
                     if (self.globals.insert(&self.allocator, name, self.peek(0))) {
                         // delete if variable key didn't exist
-                        _ = self.globals.delete(name); // TODO: add check for deletion
+                        const ret = self.globals.delete(name);
                         self.runtime_error("Undefined variable '{s}'", .{name.slice()}, file);
+                        if (!ret) self.runtime_error("(also had a problem during global deletion)", .{}, file);
+                        return VMError.RuntimeError;
+                    }
+                },
+                .SetGlobalLong => {
+                    const name = self.read_string_u16();
+
+                    if (self.globals.insert(&self.allocator, name, self.peek(0))) {
+                        // delete if variable key didn't exist
+                        const ret = self.globals.delete(name);
+                        self.runtime_error("Undefined variable '{s}'", .{name.slice()}, file);
+                        if (!ret) self.runtime_error("(also had a problem during global deletion)", .{}, file);
                         return VMError.RuntimeError;
                     }
                 },
@@ -269,6 +302,10 @@ pub const VM = struct {
 
     fn read_string_u8(self: *VM) *ObjString {
         return self.chunk.get_constant(self.read_u8()).obj.as(ObjString);
+    }
+
+    fn read_string_u16(self: *VM) *ObjString {
+        return self.chunk.get_constant(self.read_u16()).obj.as(ObjString);
     }
 
     inline fn push(self: *VM, value: Value) void {
