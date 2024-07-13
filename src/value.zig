@@ -58,7 +58,7 @@ pub const Value = union(enum) {
         self.number = -self.number;
     }
 
-    pub fn add(allocator: *const std.mem.Allocator, left: Value, right: Value, vm: *VM) Value {
+    pub fn add(allocator: *const std.mem.Allocator, left: Value, right: Value, vm: *VM) !Value {
         if (left == .number) {
             return Value{ .number = left.number + right.number };
         } else { // must be String
@@ -66,7 +66,7 @@ pub const Value = union(enum) {
             const right_string = right.obj.as(ObjString);
 
             const len = left_string.len + right_string.len;
-            const chars = allocator.alloc(u8, len) catch unreachable;
+            const chars = try allocator.alloc(u8, len);
             for (0..chars.len) |i| {
                 if (i < left_string.len) {
                     chars[i] = left_string.chars[i];
@@ -75,7 +75,7 @@ pub const Value = union(enum) {
                 }
             }
 
-            const str = ObjString.take(allocator, chars, vm);
+            const str = try ObjString.take(allocator, chars, vm);
             return Value{ .obj = @ptrCast(str) };
         }
     }

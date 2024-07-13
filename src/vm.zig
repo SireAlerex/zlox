@@ -141,7 +141,11 @@ pub const VM = struct {
                         return VMError.RuntimeError;
                     }
 
-                    self.push(Value.add(&self.allocator, left, right, self));
+                    const sum = Value.add(&self.allocator, left, right, self) catch {
+                        self.runtime_error("Out Of Memory during string concatenation", .{}, file);
+                        return VMError.RuntimeError;
+                    };
+                    self.push(sum);
                 },
                 .Sub => {
                     const right = self.pop();

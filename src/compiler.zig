@@ -13,6 +13,8 @@ const VM = @import("vm.zig").VM;
 
 const DEBUG_MODE = @import("main.zig").config.DEBUG_MODE;
 
+const AllocatorError = std.mem.Allocator.Error;
+
 pub const Compiler = struct {
     scanner: *Scanner,
     parser: Parser,
@@ -34,10 +36,10 @@ pub const Compiler = struct {
         compiler.advance();
 
         while (!compiler.match(TokenType.EOF)) {
-            compiler.declaration();
+            compiler.declaration() catch |err| compiler.handle_error(err);
         }
 
-        compiler.end_compiler();
+        compiler.end_compiler() catch |err| compiler.handle_error(err);
 
         return !compiler.parser.had_error;
     }
@@ -46,10 +48,10 @@ pub const Compiler = struct {
         self.parse_precedence(Precedence.Assignment);
     }
 
-    fn define_variable(self: *Compiler) void {
-        const index = self.parse_variable("Expect variable name.");
+    fn define_variable(self: *Compiler) !void {
+        const index = try self.parse_variable("Expect variable name.");
 
-        if (self.match(TokenType.Equal)) self.expression() else self.emit_byte(OpCode.Nil);
+        if (self.match(TokenType.Equal)) self.expression() else try self.emit_byte(OpCode.Nil);
         self.consume(TokenType.Semicolon, "Expect ';' after variable declaration.");
 
         if (self.scope_depth > 0) {
@@ -57,33 +59,33 @@ pub const Compiler = struct {
             return;
         }
 
-        self.chunk.write_constant(index, self.parser.previous.line, OpCode.DefineGlobal, OpCode.DefineGlobalLong) catch unreachable;
+        try self.chunk.write_constant(index, self.parser.previous.line, OpCode.DefineGlobal, OpCode.DefineGlobalLong);
     }
 
-    fn declaration(self: *Compiler) void {
-        if (self.match(TokenType.Var)) self.define_variable() else self.statement();
+    fn declaration(self: *Compiler) AllocatorError!void {
+        if (self.match(TokenType.Var)) try self.define_variable() else try self.statement();
 
         if (self.parser.panic_mode) self.synchronize();
     }
 
-    fn statement(self: *Compiler) void {
-        if (self.match(TokenType.Print)) self.print_statement() else if (self.match(TokenType.LBrace)) {
+    fn statement(self: *Compiler) !void {
+        if (self.match(TokenType.Print)) try self.print_statement() else if (self.match(TokenType.LBrace)) {
             self.begin_scope();
-            self.block();
-            self.end_scope();
-        } else self.expression_statement();
+            try self.block();
+            try self.end_scope();
+        } else try self.expression_statement();
     }
 
-    fn expression_statement(self: *Compiler) void {
+    fn expression_statement(self: *Compiler) !void {
         self.expression();
         // TODO: try if consuming semicolon is necessary
         _ = self.match(TokenType.Semicolon);
         // self.consume(TokenType.Semicolon, "Expect ';' after value.");
-        self.emit_byte(OpCode.Pop);
+        try self.emit_byte(OpCode.Pop);
     }
 
-    fn block(self: *Compiler) void {
-        while (!self.parser.check(TokenType.RBrace) and !self.parser.check(TokenType.EOF)) self.declaration();
+    fn block(self: *Compiler) !void {
+        while (!self.parser.check(TokenType.RBrace) and !self.parser.check(TokenType.EOF)) try self.declaration();
 
         self.consume(TokenType.RBrace, "Expect '}' after block.");
     }
@@ -92,21 +94,21 @@ pub const Compiler = struct {
         self.scope_depth += 1;
     }
 
-    fn end_scope(self: *Compiler) void {
+    fn end_scope(self: *Compiler) !void {
         self.scope_depth -= 1;
 
         while (self.local_count > 0 and self.locals[self.local_count - 1].depth > self.scope_depth) {
-            self.emit_byte(OpCode.Pop);
+            try self.emit_byte(OpCode.Pop);
             self.local_count -= 1;
         }
     }
 
-    fn print_statement(self: *Compiler) void {
+    fn print_statement(self: *Compiler) !void {
         self.expression();
         // TODO: try if consuming semicolon is necessary
         _ = self.match(TokenType.Semicolon);
         // self.consume(TokenType.Semicolon, "Expect ';' after value.");
-        self.emit_byte(OpCode.Print);
+        try self.emit_byte(OpCode.Print);
     }
 
     fn declare_variable(self: *Compiler) void {
@@ -170,11 +172,11 @@ pub const Compiler = struct {
         self.parse_precedence(Precedence.Unary);
 
         // emit operator instruction
-        switch (operator_type) {
+        _ = switch (operator_type) {
             .Minus => self.emit_byte(OpCode.Negate),
             .Bang => self.emit_byte(OpCode.Not),
             else => unreachable,
-        }
+        } catch |err| self.handle_error(err);
     }
 
     fn binary(self: *Compiler, _: bool) void {
@@ -182,7 +184,7 @@ pub const Compiler = struct {
         const rule = ParseRule.get_rule(operator_type);
         self.parse_precedence(@enumFromInt(@intFromEnum(rule.precedence) + 1));
 
-        switch (operator_type) {
+        _ = switch (operator_type) {
             .Plus => self.emit_byte(OpCode.Add),
             .Minus => self.emit_byte(OpCode.Sub),
             .Star => self.emit_byte(OpCode.Mul),
@@ -194,16 +196,16 @@ pub const Compiler = struct {
             .Less => self.emit_byte(OpCode.Less),
             .LessEqual => self.emit_byte(OpCode.LessEqual),
             else => unreachable,
-        }
+        } catch |err| self.handle_error(err);
     }
 
     fn literal(self: *Compiler, _: bool) void {
-        switch (self.parser.previous.type) {
+        _ = switch (self.parser.previous.type) {
             .False => self.emit_byte(OpCode.False),
             .True => self.emit_byte(OpCode.True),
             .Nil => self.emit_byte(OpCode.Nil),
             else => unreachable,
-        }
+        } catch |err| self.handle_error(err);
     }
 
     fn parse_precedence(self: *Compiler, precedence: Precedence) void {
@@ -236,7 +238,7 @@ pub const Compiler = struct {
         self.consume(TokenType.RParen, "Expect ')' after expression");
     }
 
-    fn parse_variable(self: *Compiler, message: []const u8) usize {
+    fn parse_variable(self: *Compiler, message: []const u8) !usize {
         self.consume(TokenType.Identifier, message);
 
         self.declare_variable();
@@ -245,46 +247,58 @@ pub const Compiler = struct {
         return self.identifier_constant(&self.parser.previous);
     }
 
-    fn identifier_constant(self: *Compiler, name: *const Token) usize {
-        const str = ObjString.copy(self.chunk.allocator, name.str.ptr[0..name.str.len], self.vm);
-        return self.chunk.make_constant(Value{ .obj = @ptrCast(str) }) catch unreachable;
+    fn identifier_constant(self: *Compiler, name: *const Token) !usize {
+        const str = try ObjString.copy(self.chunk.allocator, name.str.ptr[0..name.str.len], self.vm);
+        return try self.chunk.make_constant(Value{ .obj = @ptrCast(str) });
     }
 
     fn number(self: *Compiler, _: bool) void {
-        const value = std.fmt.parseFloat(f64, self.parser.previous.str) catch unreachable;
-        self.emit_constant(Value.new(value));
+        self.inner_number() catch |err| self.handle_error(err);
+    }
+
+    fn inner_number(self: *Compiler) !void {
+        const value = try std.fmt.parseFloat(f64, self.parser.previous.str);
+        try self.emit_constant(Value.new(value));
     }
 
     fn string(self: *Compiler, _: bool) void {
-        const str = ObjString.copy(self.chunk.allocator, self.parser.previous.str.ptr[1 .. self.parser.previous.str.len - 1], self.vm);
-        self.emit_constant(Value{ .obj = @ptrCast(str) });
+        self.innner_string() catch |err| self.handle_error(err);
+    }
+
+    fn innner_string(self: *Compiler) !void {
+        const str = try ObjString.copy(self.chunk.allocator, self.parser.previous.str.ptr[1 .. self.parser.previous.str.len - 1], self.vm);
+        try self.emit_constant(Value{ .obj = @ptrCast(str) });
     }
 
     fn variable(self: *Compiler, can_assign: bool) void {
-        self.named_variable(self.parser.previous, can_assign);
+        self.named_variable(self.parser.previous, can_assign) catch |err| self.handle_error(err);
     }
 
-    fn named_variable(self: *Compiler, name: Token, can_assign: bool) void {
-        // const index = self.identifier_constant(&name); // TODO: check at the right place with c
-
+    fn named_variable(self: *Compiler, name: Token, can_assign: bool) !void {
         var get_op: OpCode = undefined;
+        var get_op_long: OpCode = undefined;
         var set_op: OpCode = undefined;
+        var set_op_long: OpCode = undefined;
         var index: usize = undefined;
         if (self.resolve_local(&name)) |arg| {
             index = arg;
             get_op = OpCode.GetLocal;
+            get_op_long = OpCode.GetLocalLong;
             set_op = OpCode.SetLocal;
+            set_op_long = OpCode.SetLocalLong;
         } else {
-            index = self.identifier_constant(&name);
+            index = try self.identifier_constant(&name);
             get_op = OpCode.GetGlobal;
+            get_op_long = OpCode.GetGlobalLong;
             set_op = OpCode.SetGlobal;
+            set_op_long = OpCode.SetGlobalLong;
         }
 
         if (can_assign and self.match(TokenType.Equal)) {
             self.expression();
-            self.chunk.write_constant(index, self.parser.previous.line, set_op, OpCode.SetGlobalLong) catch unreachable; // TODO: LocalLong (error handling ?)
+            try self.chunk.write_constant(index, self.parser.previous.line, set_op, set_op_long);
         } else {
-            self.chunk.write_constant(index, self.parser.previous.line, get_op, OpCode.GetGlobalLong) catch unreachable;
+            try self.chunk.write_constant(index, self.parser.previous.line, get_op, get_op_long);
         }
     }
 
@@ -303,9 +317,9 @@ pub const Compiler = struct {
         return null;
     }
 
-    fn emit_constant(self: *Compiler, value: Value) void {
-        const index = self.chunk.make_constant(value) catch unreachable;
-        self.chunk.write_constant(index, self.parser.previous.line, OpCode.Constant, OpCode.ConstantLong) catch unreachable;
+    fn emit_constant(self: *Compiler, value: Value) !void {
+        const index = try self.chunk.make_constant(value);
+        try self.chunk.write_constant(index, self.parser.previous.line, OpCode.Constant, OpCode.ConstantLong);
     }
 
     fn advance(self: *Compiler) void {
@@ -325,8 +339,8 @@ pub const Compiler = struct {
         } else self.parser.error_at_current(message);
     }
 
-    fn emit_byte(self: *Compiler, byte: anytype) void {
-        self.chunk.write(byte, self.parser.previous.line) catch unreachable;
+    fn emit_byte(self: *Compiler, byte: anytype) !void {
+        try self.chunk.write(byte, self.parser.previous.line);
     }
 
     fn emit_bytes(self: *Compiler, byte1: anytype, byte2: anytype) void {
@@ -334,8 +348,8 @@ pub const Compiler = struct {
         self.emit_byte(byte2);
     }
 
-    fn end_compiler(self: *Compiler) void {
-        self.emit_return();
+    fn end_compiler(self: *Compiler) !void {
+        try self.emit_return();
         if (comptime DEBUG_MODE) {
             if (!self.parser.had_error) {
                 self.current_chunk().dissasemble_chunk("code");
@@ -343,8 +357,8 @@ pub const Compiler = struct {
         }
     }
 
-    fn emit_return(self: *Compiler) void {
-        self.emit_byte(OpCode.Return);
+    fn emit_return(self: *Compiler) !void {
+        try self.emit_byte(OpCode.Return);
     }
 
     fn match(self: *Compiler, kind: TokenType) bool {
@@ -356,6 +370,17 @@ pub const Compiler = struct {
 
     fn current_chunk(self: *Compiler) *Chunk {
         return self.chunk;
+    }
+
+    fn handle_error(self: *Compiler, err: anyerror) void {
+        switch (err) {
+            error.OutOfMemory => self.parser.error_at_previous("Out Of Memory."),
+            error.InvalidCharacter => self.parser.error_at_previous("Failed parsing."),
+            else => {
+                self.parser.error_at_previous("Unknown error:");
+                std.debug.print("{any}\n", .{err});
+            },
+        }
     }
 
     const Parser = struct {

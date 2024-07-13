@@ -3,6 +3,7 @@ const print = std.debug.print;
 const assert = std.debug.assert;
 const ArrayListUnmanaged = std.ArrayListUnmanaged;
 const Value = @import("value.zig").Value;
+const AllocatorError = std.mem.Allocator.Error;
 
 pub const OpCode = enum(u8) {
     Return,
@@ -32,7 +33,9 @@ pub const OpCode = enum(u8) {
     SetGlobal,
     SetGlobalLong,
     GetLocal,
+    GetLocalLong,
     SetLocal,
+    SetLocalLong,
     _,
 };
 
@@ -42,7 +45,7 @@ pub const Chunk = struct {
     lines: ArrayListUnmanaged(Line),
     allocator: *const std.mem.Allocator,
 
-    pub fn init(allocator: *const std.mem.Allocator) !*Chunk {
+    pub fn init(allocator: *const std.mem.Allocator) AllocatorError!*Chunk {
         var self = try allocator.create(Chunk);
         self.code = try ArrayListUnmanaged(u8).initCapacity(allocator.*, 4);
         self.constants = try ArrayListUnmanaged(Value).initCapacity(allocator.*, 4);
@@ -70,7 +73,7 @@ pub const Chunk = struct {
         return self.lines.items.len;
     }
 
-    pub fn write(self: *Chunk, byte: anytype, line: u32) !void {
+    pub fn write(self: *Chunk, byte: anytype, line: u32) AllocatorError!void {
         switch (@TypeOf(byte)) {
             inline comptime_int, u8 => try self.code.append(self.allocator.*, byte),
             usize => try self.code.append(self.allocator.*, @truncate(byte)),
@@ -88,7 +91,7 @@ pub const Chunk = struct {
         }
     }
 
-    pub fn write_constant(self: *Chunk, index: usize, line: u32, opu8: OpCode, opu16: OpCode) !void {
+    pub fn write_constant(self: *Chunk, index: usize, line: u32, opu8: OpCode, opu16: OpCode) AllocatorError!void {
         if (index < std.math.maxInt(u8)) {
             try self.write(opu8, line);
             try self.write(index, line);
@@ -105,7 +108,7 @@ pub const Chunk = struct {
         }
     }
 
-    pub fn make_constant(self: *Chunk, value: Value) !usize {
+    pub fn make_constant(self: *Chunk, value: Value) AllocatorError!usize {
         try self.constants.append(self.allocator.*, value);
         return self.constants_len() - 1;
     }
@@ -156,7 +159,9 @@ pub const Chunk = struct {
             .SetGlobal => return self.constant_instruction("OP_SET_GLOBAL", offset),
             .SetGlobalLong => return self.constant_long_instruction("OP_SET_GLOBAL_LONG", offset),
             .GetLocal => return self.byte_instruction("OP_GET_LOCAL", offset),
+            .GetLocalLong => return self.constant_long_instruction("OP_GET_LOCAL_LONG", offset),
             .SetLocal => return self.byte_instruction("OP_SET_LOCAL", offset),
+            .SetLocalLong => return self.constant_long_instruction("OP_SET_LOCAL_LONG", offset),
             else => {
                 print("Unknown opcode {}\n", .{instruction});
                 return offset + 1;
@@ -194,6 +199,14 @@ pub const Chunk = struct {
         const slot = self.get(offset + 1);
         print("{s: <24}{d}\n", .{ name, slot });
         return offset + 2;
+    }
+
+    fn two_byte_instruction(self: *const Chunk, name: []const u8, offset: u32) u32 {
+        const hi = self.get(offset + 1);
+        const lo = self.get(offset + 2);
+        const slot: u16 = (@as(u16, hi) << 8) | @as(u16, lo);
+        print("{s: <24}{d}\n", .{ name, slot });
+        return offset + 3;
     }
 
     fn constant_instruction(self: *const Chunk, name: []const u8, offset: u32) u32 {
