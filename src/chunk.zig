@@ -31,6 +31,8 @@ pub const OpCode = enum(u8) {
     GetGlobalLong,
     SetGlobal,
     SetGlobalLong,
+    GetLocal,
+    SetLocal,
     _,
 };
 
@@ -153,6 +155,8 @@ pub const Chunk = struct {
             .GetGlobalLong => return self.constant_long_instruction("OP_GET_GLOBAL_LONG", offset),
             .SetGlobal => return self.constant_instruction("OP_SET_GLOBAL", offset),
             .SetGlobalLong => return self.constant_long_instruction("OP_SET_GLOBAL_LONG", offset),
+            .GetLocal => return self.byte_instruction("OP_GET_LOCAL", offset),
+            .SetLocal => return self.byte_instruction("OP_SET_LOCAL", offset),
             else => {
                 print("Unknown opcode {}\n", .{instruction});
                 return offset + 1;
@@ -184,6 +188,12 @@ pub const Chunk = struct {
     fn simple_instruction(name: []const u8, offset: u32) u32 {
         print("{s}\n", .{name});
         return offset + 1;
+    }
+
+    fn byte_instruction(self: *const Chunk, name: []const u8, offset: u32) u32 {
+        const slot = self.get(offset + 1);
+        print("{s: <24}{d}\n", .{ name, slot });
+        return offset + 2;
     }
 
     fn constant_instruction(self: *const Chunk, name: []const u8, offset: u32) u32 {

@@ -18,6 +18,11 @@ pub const Compiler = struct {
     parser: Parser,
     chunk: *Chunk,
     vm: *VM,
+    locals: [MAX_LOCAL + 1]Local = [_]Local{undefined} ** (MAX_LOCAL + 1),
+    local_count: usize = 0,
+    scope_depth: isize = 0,
+
+    const MAX_LOCAL = std.math.maxInt(u8); // TODO: u16 support (and maybe more with generics op ?)
 
     pub fn compile(source: *[]const u8, chunk: *Chunk, vm: *VM) !bool {
         const scanner = try Scanner.init(chunk.allocator, source);
@@ -41,37 +46,107 @@ pub const Compiler = struct {
         self.parse_precedence(Precedence.Assignment);
     }
 
-    fn var_declaration(self: *Compiler) void {
+    fn define_variable(self: *Compiler) void {
         const index = self.parse_variable("Expect variable name.");
 
         if (self.match(TokenType.Equal)) self.expression() else self.emit_byte(OpCode.Nil);
         self.consume(TokenType.Semicolon, "Expect ';' after variable declaration.");
 
+        if (self.scope_depth > 0) {
+            self.mark_initialized();
+            return;
+        }
+
         self.chunk.write_constant(index, self.parser.previous.line, OpCode.DefineGlobal, OpCode.DefineGlobalLong) catch unreachable;
     }
 
     fn declaration(self: *Compiler) void {
-        if (self.match(TokenType.Var)) self.var_declaration() else self.statement();
+        if (self.match(TokenType.Var)) self.define_variable() else self.statement();
 
         if (self.parser.panic_mode) self.synchronize();
     }
 
     fn statement(self: *Compiler) void {
-        if (self.match(TokenType.Print)) self.print_statement() else self.expression_statement();
+        if (self.match(TokenType.Print)) self.print_statement() else if (self.match(TokenType.LBrace)) {
+            self.begin_scope();
+            self.block();
+            self.end_scope();
+        } else self.expression_statement();
     }
 
     fn expression_statement(self: *Compiler) void {
         self.expression();
         // TODO: try if consuming semicolon is necessary
-        // _ = self.match(TokenType.Semicolon);
-        self.consume(TokenType.Semicolon, "Expect ';' after value.");
+        _ = self.match(TokenType.Semicolon);
+        // self.consume(TokenType.Semicolon, "Expect ';' after value.");
         self.emit_byte(OpCode.Pop);
+    }
+
+    fn block(self: *Compiler) void {
+        while (!self.parser.check(TokenType.RBrace) and !self.parser.check(TokenType.EOF)) self.declaration();
+
+        self.consume(TokenType.RBrace, "Expect '}' after block.");
+    }
+
+    fn begin_scope(self: *Compiler) void {
+        self.scope_depth += 1;
+    }
+
+    fn end_scope(self: *Compiler) void {
+        self.scope_depth -= 1;
+
+        while (self.local_count > 0 and self.locals[self.local_count - 1].depth > self.scope_depth) {
+            self.emit_byte(OpCode.Pop);
+            self.local_count -= 1;
+        }
     }
 
     fn print_statement(self: *Compiler) void {
         self.expression();
-        self.consume(TokenType.Semicolon, "Expect ';' after value");
+        // TODO: try if consuming semicolon is necessary
+        _ = self.match(TokenType.Semicolon);
+        // self.consume(TokenType.Semicolon, "Expect ';' after value.");
         self.emit_byte(OpCode.Print);
+    }
+
+    fn declare_variable(self: *Compiler) void {
+        if (self.scope_depth == 0) return;
+
+        const name = &self.parser.previous;
+
+        if (self.local_count == 0) {
+            self.add_local(name.*);
+            return;
+        }
+
+        var i = self.local_count - 1;
+        while (i >= 0) : (i -= 1) {
+            const local = &self.locals[i];
+            if (local.depth != -1 and local.depth < self.scope_depth) break;
+
+            if (name.identifier_eq(&local.name)) self.parser.error_at_previous("Already a variable with this name in this scope.");
+
+            if (i == 0) break; // to avoid integer overflow
+        }
+
+        self.add_local(name.*);
+    }
+
+    fn add_local(self: *Compiler, name: Token) void {
+        if (self.local_count == MAX_LOCAL) {
+            self.parser.error_at_previous("Too many local variables in function.");
+            return;
+        }
+
+        const local = &self.locals[self.local_count];
+        self.local_count += 1;
+
+        local.name = name;
+        local.depth = -1;
+    }
+
+    fn mark_initialized(self: *Compiler) void {
+        self.locals[self.local_count - 1].depth = self.scope_depth;
     }
 
     fn synchronize(self: *Compiler) void {
@@ -163,6 +238,10 @@ pub const Compiler = struct {
 
     fn parse_variable(self: *Compiler, message: []const u8) usize {
         self.consume(TokenType.Identifier, message);
+
+        self.declare_variable();
+        if (self.scope_depth > 0) return 0;
+
         return self.identifier_constant(&self.parser.previous);
     }
 
@@ -186,14 +265,42 @@ pub const Compiler = struct {
     }
 
     fn named_variable(self: *Compiler, name: Token, can_assign: bool) void {
-        const index = self.identifier_constant(&name);
+        // const index = self.identifier_constant(&name); // TODO: check at the right place with c
+
+        var get_op: OpCode = undefined;
+        var set_op: OpCode = undefined;
+        var index: usize = undefined;
+        if (self.resolve_local(&name)) |arg| {
+            index = arg;
+            get_op = OpCode.GetLocal;
+            set_op = OpCode.SetLocal;
+        } else {
+            index = self.identifier_constant(&name);
+            get_op = OpCode.GetGlobal;
+            set_op = OpCode.SetGlobal;
+        }
 
         if (can_assign and self.match(TokenType.Equal)) {
             self.expression();
-            self.chunk.write_constant(index, self.parser.previous.line, OpCode.SetGlobal, OpCode.SetGlobalLong) catch unreachable;
+            self.chunk.write_constant(index, self.parser.previous.line, set_op, OpCode.SetGlobalLong) catch unreachable; // TODO: LocalLong (error handling ?)
         } else {
-            self.chunk.write_constant(index, self.parser.previous.line, OpCode.GetGlobal, OpCode.GetGlobalLong) catch unreachable;
+            self.chunk.write_constant(index, self.parser.previous.line, get_op, OpCode.GetGlobalLong) catch unreachable;
         }
+    }
+
+    fn resolve_local(self: *Compiler, name: *const Token) ?usize {
+        if (self.local_count == 0) return null;
+
+        var i = self.local_count - 1;
+        while (i >= 0) : (i -= 1) {
+            const local = &self.locals[i];
+            if (name.identifier_eq(&local.name)) {
+                if (local.depth == -1) self.parser.error_at_previous("Can't read local variable in its own initializer.");
+                return i;
+            }
+            if (i == 0) break; // avoid integer overflow TODO: better solution
+        }
+        return null;
     }
 
     fn emit_constant(self: *Compiler, value: Value) void {
@@ -335,5 +442,10 @@ pub const Compiler = struct {
         Unary, // ! -
         Call, // . ()
         Primary,
+    };
+
+    const Local = struct {
+        name: Token,
+        depth: isize,
     };
 };

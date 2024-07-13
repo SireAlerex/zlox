@@ -306,6 +306,14 @@ pub const VM = struct {
                         return VMError.RuntimeError;
                     }
                 },
+                .GetLocal => {
+                    const slot = self.read_u8();
+                    self.push(self.stack[slot]);
+                },
+                .SetLocal => {
+                    const slot = self.read_u8();
+                    self.stack[slot] = self.peek(0);
+                },
                 else => unreachable,
             }
         }

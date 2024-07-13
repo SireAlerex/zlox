@@ -214,6 +214,10 @@ pub const Token = struct {
     type: TokenType,
     str: []const u8,
     line: u32,
+
+    pub fn identifier_eq(self: *const Token, right: *const Token) bool {
+        return std.mem.eql(u8, self.str, right.str);
+    }
 };
 
 pub const TokenType = enum {
