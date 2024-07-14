@@ -30,8 +30,12 @@ pub const Value = union(enum) {
         };
     }
 
-    pub fn is_falsey(self: *const Value) Value {
-        return Value{ .boolean = self.* == .nil or (self.* == .boolean and !self.*.boolean) };
+    pub fn is_falsey(self: *const Value) bool {
+        return self.* == .nil or (self.* == .boolean and !self.*.boolean);
+    }
+
+    pub fn not_mut(self: *Value) void {
+        self.* = Value{ .boolean = self.* == .nil or (self.* == .boolean and !self.*.boolean) };
     }
 
     pub fn get_type(self: *const Value) []const u8 {

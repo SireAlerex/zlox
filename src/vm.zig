@@ -154,7 +154,7 @@ pub const VM = struct {
                 .False => self.push(FALSE),
                 .True => self.push(TRUE),
                 .Nil => self.push(NIL),
-                .Not => self.push(self.pop().is_falsey()),
+                .Not => self.peek_mut(0).not_mut(),
                 .Equal => {
                     const right = self.pop();
                     self.peek_mut(0).eq_mut(right);
@@ -209,6 +209,14 @@ pub const VM = struct {
                 },
                 .SetLocalLong => {
                     self.set_local(u16, read_u16);
+                },
+                .Jump => {
+                    const offset = self.read_u16();
+                    self.ip += offset;
+                },
+                .JumpIfFalse => {
+                    const offset = self.read_u16();
+                    if (self.peek(0).is_falsey()) self.ip += offset;
                 },
                 else => unreachable,
             }

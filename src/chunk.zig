@@ -36,6 +36,8 @@ pub const OpCode = enum(u8) {
     GetLocalLong,
     SetLocal,
     SetLocalLong,
+    Jump,
+    JumpIfFalse,
     _,
 };
 
@@ -61,7 +63,7 @@ pub const Chunk = struct {
         self.allocator.destroy(self);
     }
 
-    fn len(self: *const Chunk) usize {
+    pub fn len(self: *const Chunk) usize {
         return self.code.items.len;
     }
 
@@ -162,6 +164,8 @@ pub const Chunk = struct {
             .GetLocalLong => return self.constant_long_instruction("OP_GET_LOCAL_LONG", offset),
             .SetLocal => return self.byte_instruction("OP_SET_LOCAL", offset),
             .SetLocalLong => return self.constant_long_instruction("OP_SET_LOCAL_LONG", offset),
+            .Jump => return self.jump_instruction("OP_JUMP", offset, 1),
+            .JumpIfFalse => return self.jump_instruction("OP_JUMP_IF_FALSE", offset, 1),
             else => {
                 print("Unknown opcode {}\n", .{instruction});
                 return offset + 1;
@@ -197,7 +201,7 @@ pub const Chunk = struct {
 
     fn byte_instruction(self: *const Chunk, name: []const u8, offset: u32) u32 {
         const slot = self.get(offset + 1);
-        print("{s: <24}{d}\n", .{ name, slot });
+        print("{s: <24} {d}\n", .{ name, slot });
         return offset + 2;
     }
 
@@ -205,13 +209,13 @@ pub const Chunk = struct {
         const hi = self.get(offset + 1);
         const lo = self.get(offset + 2);
         const slot: u16 = (@as(u16, hi) << 8) | @as(u16, lo);
-        print("{s: <24}{d}\n", .{ name, slot });
+        print("{s: <24} {d}\n", .{ name, slot });
         return offset + 3;
     }
 
     fn constant_instruction(self: *const Chunk, name: []const u8, offset: u32) u32 {
         const byte = self.get(offset + 1);
-        print("{s: <24}{d} -> '", .{ name, byte });
+        print("{s: <24} {d} -> '", .{ name, byte });
         self.get_constant(byte).show() catch unreachable;
         print("'\n", .{});
 
@@ -222,9 +226,18 @@ pub const Chunk = struct {
         const hi = self.get(offset + 1);
         const lo = self.get(offset + 2);
         const index: u16 = (@as(u16, hi) << 8) | @as(u16, lo);
-        print("{s: <24}{d} -> '", .{ name, index });
+        print("{s: <24} {d} -> '", .{ name, index });
         self.get_constant(index).show() catch unreachable;
         print("'\n", .{});
+
+        return offset + 3;
+    }
+
+    fn jump_instruction(self: *const Chunk, name: []const u8, offset: u32, sign: u32) u32 {
+        const hi = self.get(offset + 1);
+        const lo = self.get(offset + 2);
+        const jump: u16 = (@as(u16, hi) << 8) | @as(u16, lo);
+        print("{s: <24} {d} -> {d}\n", .{ name, offset, offset + 3 + sign * jump });
 
         return offset + 3;
     }

@@ -15,6 +15,7 @@ const DEBUG_MODE = @import("main.zig").config.DEBUG_MODE;
 
 const AllocatorError = std.mem.Allocator.Error;
 
+// TODO: test unreachable instead of error handling for OOM for perf (unreachable in chunk, obj.. not compiler)
 pub const Compiler = struct {
     scanner: *Scanner,
     parser: Parser,
@@ -24,7 +25,7 @@ pub const Compiler = struct {
     local_count: usize = 0,
     scope_depth: isize = 0,
 
-    const MAX_LOCAL = std.math.maxInt(u8); // TODO: u16 support (and maybe more with generics op ?)
+    const MAX_LOCAL = std.math.maxInt(u16);
 
     pub fn compile(source: *[]const u8, chunk: *Chunk, vm: *VM) !bool {
         const scanner = try Scanner.init(chunk.allocator, source);
@@ -68,12 +69,63 @@ pub const Compiler = struct {
         if (self.parser.panic_mode) self.synchronize();
     }
 
+    fn @"and"(self: *Compiler, _: bool) void {
+        self.inner_and() catch |err| self.handle_error(err);
+    }
+
+    fn inner_and(self: *Compiler) !void {
+        const end_jump = try self.emit_jump(OpCode.JumpIfFalse);
+
+        try self.emit_byte(OpCode.Pop);
+        self.parse_precedence(Precedence.And);
+
+        self.patch_jump(end_jump);
+    }
+
+    fn @"or"(self: *Compiler, _: bool) void {
+        self.inner_or() catch |err| self.handle_error(err);
+    }
+
+    // TODO: additional instruction: JUMP_TRUE and JUMP -> POP combined ?
+    fn inner_or(self: *Compiler) !void {
+        const else_jump = try self.emit_jump(OpCode.JumpIfFalse);
+        const end_jump = try self.emit_jump(OpCode.Jump);
+
+        self.patch_jump(else_jump);
+        try self.emit_byte(OpCode.Pop);
+
+        self.parse_precedence(Precedence.Or);
+        self.patch_jump(end_jump);
+    }
+
     fn statement(self: *Compiler) !void {
-        if (self.match(TokenType.Print)) try self.print_statement() else if (self.match(TokenType.LBrace)) {
+        if (self.match(TokenType.Print)) {
+            try self.print_statement();
+        } else if (self.match(TokenType.LBrace)) {
             self.begin_scope();
             try self.block();
             try self.end_scope();
+        } else if (self.match(TokenType.If)) {
+            try self.if_statement();
         } else try self.expression_statement();
+    }
+
+    fn if_statement(self: *Compiler) AllocatorError!void {
+        self.consume(TokenType.LParen, "Expect '(' after 'if'.");
+        self.expression();
+        self.consume(TokenType.RParen, "Expect ')' after condition.");
+
+        const then_jump = try self.emit_jump(OpCode.JumpIfFalse);
+        try self.emit_byte(OpCode.Pop); // Popping condition value before then instructions
+        try self.statement();
+
+        const else_jump = try self.emit_jump(OpCode.Jump);
+
+        self.patch_jump(then_jump);
+        try self.emit_byte(OpCode.Pop); // Popping condition value before else instructions
+
+        if (self.match(TokenType.Else)) try self.statement();
+        self.patch_jump(else_jump);
     }
 
     fn expression_statement(self: *Compiler) !void {
@@ -317,6 +369,22 @@ pub const Compiler = struct {
         return null;
     }
 
+    fn emit_jump(self: *Compiler, instruction: OpCode) !usize {
+        try self.emit_byte(instruction);
+        try self.emit_bytes(0xff, 0xff);
+        return self.current_chunk().len() - 2;
+    }
+
+    fn patch_jump(self: *Compiler, offset: usize) void {
+        // -2 to adjust for the bytecode for the jump offset itself.
+        const jump = self.current_chunk().len() - offset - 2;
+
+        if (jump > std.math.maxInt(u16)) self.parser.error_at_previous("Too much code to jump over.");
+
+        self.current_chunk().code.items[offset] = @truncate((jump >> 8) & 0xff);
+        self.current_chunk().code.items[offset + 1] = @truncate(jump & 0xff);
+    }
+
     fn emit_constant(self: *Compiler, value: Value) !void {
         const index = try self.chunk.make_constant(value);
         try self.chunk.write_constant(index, self.parser.previous.line, OpCode.Constant, OpCode.ConstantLong);
@@ -343,9 +411,9 @@ pub const Compiler = struct {
         try self.chunk.write(byte, self.parser.previous.line);
     }
 
-    fn emit_bytes(self: *Compiler, byte1: anytype, byte2: anytype) void {
-        self.emit_byte(byte1);
-        self.emit_byte(byte2);
+    fn emit_bytes(self: *Compiler, byte1: anytype, byte2: anytype) !void {
+        try self.emit_byte(byte1);
+        try self.emit_byte(byte2);
     }
 
     fn end_compiler(self: *Compiler) !void {
@@ -446,6 +514,8 @@ pub const Compiler = struct {
             rules_inner[@intFromEnum(TokenType.LessEqual)] = ParseRule{ .infix = binary, .precedence = Precedence.Comparison };
             rules_inner[@intFromEnum(TokenType.String)] = ParseRule{ .prefix = string };
             rules_inner[@intFromEnum(TokenType.Identifier)] = ParseRule{ .prefix = variable };
+            rules_inner[@intFromEnum(TokenType.And)] = ParseRule{ .infix = @"and", .precedence = Precedence.And };
+            rules_inner[@intFromEnum(TokenType.Or)] = ParseRule{ .infix = @"or", .precedence = Precedence.Or };
 
             return rules_inner;
         }
