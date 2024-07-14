@@ -110,25 +110,20 @@ pub const VM = struct {
                     return;
                 },
                 .Constant => {
-                    const value = self.chunk.get_constant(self.read_u8());
-                    self.push(value);
+                    self.constant(u8, read_u8);
                 },
                 .ConstantLong => {
-                    const value = self.chunk.get_constant(self.read_u16());
-                    self.push(value);
+                    self.constant(u16, read_u16);
                 },
                 .Negate => {
-                    self.stack_top -= 1;
-
-                    if (self.stack_top[0] != .number) {
+                    var last_slot = self.peek_mut(0);
+                    if (last_slot.* != .number) {
                         if (comptime config.TEST_MODE) {
                             self.runtime_error("Operand must be a number.", .{}, file);
-                        } else self.runtime_error("Negate operand must be a number, got {s}", .{self.stack_top[0].get_type()}, file);
+                        } else self.runtime_error("Negate operand must be a number, got {s}", .{last_slot.get_type()}, file);
                         return VMError.RuntimeError;
                     }
-                    self.stack_top[0].negate();
-
-                    self.stack_top += 1;
+                    last_slot.negate_mut();
                 },
                 .Add => {
                     const right = self.pop();
@@ -148,46 +143,13 @@ pub const VM = struct {
                     self.push(sum);
                 },
                 .Sub => {
-                    const right = self.pop();
-                    var left = self.pop();
-
-                    if (right != .number or left != .number) {
-                        if (comptime config.TEST_MODE) {
-                            self.runtime_error("Operands must be numbers.", .{}, file);
-                        } else self.runtime_error("Sub operands must be number, got {s} - {s}", .{ left.get_type(), right.get_type() }, file);
-                        return VMError.RuntimeError;
-                    }
-
-                    left.sub(right);
-                    self.push(left);
+                    try self.binary_op(Value.sub_mut, "Sub operands must be number, got {s} - {s}", file);
                 },
                 .Mul => {
-                    const right = self.pop();
-                    var left = self.pop();
-
-                    if (right != .number or left != .number) {
-                        if (comptime config.TEST_MODE) {
-                            self.runtime_error("Operands must be numbers.", .{}, file);
-                        } else self.runtime_error("Mul operands must be number, got {s} - {s}", .{ left.get_type(), right.get_type() }, file);
-                        return VMError.RuntimeError;
-                    }
-
-                    left.mul(right);
-                    self.push(left);
+                    try self.binary_op(Value.mul_mut, "Mul operands must be number, got {s} * {s}", file);
                 },
                 .Div => {
-                    const right = self.pop();
-                    var left = self.pop();
-
-                    if (right != .number or left != .number) {
-                        if (comptime config.TEST_MODE) {
-                            self.runtime_error("Operands must be numbers.", .{}, file);
-                        } else self.runtime_error("Div operands must be number, got {s} - {s}", .{ left.get_type(), right.get_type() }, file);
-                        return VMError.RuntimeError;
-                    }
-
-                    left.div(right);
-                    self.push(left);
+                    try self.binary_op(Value.div_mut, "Div operands must be number, got {s} / {s}", file);
                 },
                 .False => self.push(FALSE),
                 .True => self.push(TRUE),
@@ -195,63 +157,23 @@ pub const VM = struct {
                 .Not => self.push(self.pop().is_falsey()),
                 .Equal => {
                     const right = self.pop();
-                    self.push(Value{ .boolean = self.pop().eq(right) });
+                    self.peek_mut(0).eq_mut(right);
                 },
                 .NotEqual => {
                     const right = self.pop();
-                    self.push(Value{ .boolean = !self.pop().eq(right) });
+                    self.peek_mut(0).not_eq_mut(right);
                 },
                 .Greater => {
-                    const right = self.pop();
-                    var left = self.pop();
-
-                    if (right != .number or left != .number) {
-                        if (comptime config.TEST_MODE) {
-                            self.runtime_error("Operands must be numbers.", .{}, file);
-                        } else self.runtime_error("Greater operands must be number, got {s} - {s}", .{ left.get_type(), right.get_type() }, file);
-                        return VMError.RuntimeError;
-                    }
-
-                    self.push(Value{ .boolean = left.greater(right) });
+                    try self.bool_op(Value.greater_mut, "Greater operands must be number, got {s} > {s}", file);
                 },
                 .GreaterEqual => {
-                    const right = self.pop();
-                    var left = self.pop();
-
-                    if (right != .number or left != .number) {
-                        if (comptime config.TEST_MODE) {
-                            self.runtime_error("Operands must be numbers.", .{}, file);
-                        } else self.runtime_error("GreaterEqual operands must be number, got {s} - {s}", .{ left.get_type(), right.get_type() }, file);
-                        return VMError.RuntimeError;
-                    }
-
-                    self.push(Value{ .boolean = left.greater_eq(right) });
+                    try self.bool_op(Value.greater_eq_mut, "GreaterEqual operands must be number, got {s} >= {s}", file);
                 },
                 .Less => {
-                    const right = self.pop();
-                    var left = self.pop();
-
-                    if (right != .number or left != .number) {
-                        if (comptime config.TEST_MODE) {
-                            self.runtime_error("Operands must be numbers.", .{}, file);
-                        } else self.runtime_error("Less operands must be number, got {s} - {s}", .{ left.get_type(), right.get_type() }, file);
-                        return VMError.RuntimeError;
-                    }
-
-                    self.push(Value{ .boolean = left.less(right) });
+                    try self.bool_op(Value.less_mut, "Less operands must be number, got {s} < {s}", file);
                 },
                 .LessEqual => {
-                    const right = self.pop();
-                    var left = self.pop();
-
-                    if (right != .number or left != .number) {
-                        if (comptime config.TEST_MODE) {
-                            self.runtime_error("Operands must be numbers.", .{}, file);
-                        } else self.runtime_error("LessEqual operands must be number, got {s} - {s}", .{ left.get_type(), right.get_type() }, file);
-                        return VMError.RuntimeError;
-                    }
-
-                    self.push(Value{ .boolean = left.less_eq(right) });
+                    try self.bool_op(Value.less_eq_mut, "LessEqual operands must be number, got {s} <= {s}", file);
                 },
                 .Print => {
                     try self.pop().show();
@@ -259,64 +181,34 @@ pub const VM = struct {
                 },
                 .Pop => _ = self.pop(),
                 .DefineGlobal => {
-                    const name = self.read_string_u8();
-                    _ = self.globals.insert(&self.allocator, name, self.peek(0));
-                    // pop only after being added to avoid problem with gc
-                    _ = self.pop();
+                    self.define_global(read_string_u8);
                 },
                 .DefineGlobalLong => {
-                    const name = self.read_string_u16();
-                    _ = self.globals.insert(&self.allocator, name, self.peek(0));
-                    // pop only after being added to avoid problem with gc
-                    _ = self.pop();
+                    self.define_global(read_string_u16);
                 },
                 .GetGlobal => {
-                    const name = self.read_string_u8();
-                    if (self.globals.get(name)) |value| {
-                        self.push(value);
-                    } else {
-                        self.runtime_error("Undefined variable '{s}'.", .{name.slice()}, file);
-                        return VMError.RuntimeError;
-                    }
+                    try self.get_global(read_string_u8, file);
                 },
                 .GetGlobalLong => {
-                    const name = self.read_string_u16();
-                    if (self.globals.get(name)) |value| {
-                        self.push(value);
-                    } else {
-                        self.runtime_error("Undefined variable '{s}'.", .{name.slice()}, file);
-                        return VMError.RuntimeError;
-                    }
+                    try self.get_global(read_string_u16, file);
                 },
                 .SetGlobal => {
-                    const name = self.read_string_u8();
-
-                    if (self.globals.insert(&self.allocator, name, self.peek(0))) {
-                        // delete if variable key didn't exist
-                        const ret = self.globals.delete(name);
-                        self.runtime_error("Undefined variable '{s}'.", .{name.slice()}, file);
-                        if (!ret) self.runtime_error("(also had a problem during global deletion)", .{}, file);
-                        return VMError.RuntimeError;
-                    }
+                    try self.set_global(read_string_u8, file);
                 },
                 .SetGlobalLong => {
-                    const name = self.read_string_u16();
-
-                    if (self.globals.insert(&self.allocator, name, self.peek(0))) {
-                        // delete if variable key didn't exist
-                        const ret = self.globals.delete(name);
-                        self.runtime_error("Undefined variable '{s}'.", .{name.slice()}, file);
-                        if (!ret) self.runtime_error("(also had a problem during global deletion)", .{}, file);
-                        return VMError.RuntimeError;
-                    }
+                    try self.set_global(read_string_u16, file);
                 },
                 .GetLocal => {
-                    const slot = self.read_u8();
-                    self.push(self.stack[slot]);
+                    self.get_local(u8, read_u8);
+                },
+                .GetLocalLong => {
+                    self.get_local(u16, read_u16);
                 },
                 .SetLocal => {
-                    const slot = self.read_u8();
-                    self.stack[slot] = self.peek(0);
+                    self.set_local(u8, read_u8);
+                },
+                .SetLocalLong => {
+                    self.set_local(u16, read_u16);
                 },
                 else => unreachable,
             }
@@ -325,8 +217,84 @@ pub const VM = struct {
         return;
     }
 
+    fn constant(self: *VM, T: type, read: fn (*VM) T) void {
+        const value = self.chunk.get_constant(read(self));
+        self.push(value);
+    }
+
+    fn bool_op(self: *VM, mutate: fn (*Value, Value) void, comptime message: []const u8, file: ?[]const u8) !void {
+        const right = self.pop();
+        var left = self.peek_mut(0);
+
+        if (right != .number or left.* != .number) {
+            if (comptime config.TEST_MODE) {
+                self.runtime_error("Operands must be numbers.", .{}, file);
+            } else self.runtime_error(message, .{ left.get_type(), right.get_type() }, file);
+            return VMError.RuntimeError;
+        }
+
+        mutate(left, right);
+    }
+
+    fn binary_op(self: *VM, mutate: fn (*Value, Value) void, comptime message: []const u8, file: ?[]const u8) !void {
+        const right = self.pop();
+        var left = self.peek_mut(0);
+
+        if (right != .number or left.* != .number) {
+            if (comptime config.TEST_MODE) {
+                self.runtime_error("Operands must be numbers.", .{}, file);
+            } else self.runtime_error(message, .{ left.get_type(), right.get_type() }, file);
+            return VMError.RuntimeError;
+        }
+
+        mutate(left, right);
+    }
+
+    fn define_global(self: *VM, read: fn (*VM) *ObjString) void {
+        const name = read(self);
+        _ = self.globals.insert(&self.allocator, name, self.peek(0));
+        // pop only after being added to avoid problem with gc
+        _ = self.pop();
+    }
+
+    fn get_global(self: *VM, read: fn (*VM) *ObjString, file: ?[]const u8) !void {
+        const name = read(self);
+        if (self.globals.get(name)) |value| {
+            self.push(value);
+        } else {
+            self.runtime_error("Undefined variable '{s}'.", .{name.slice()}, file);
+            return VMError.RuntimeError;
+        }
+    }
+
+    fn set_global(self: *VM, read: fn (*VM) *ObjString, file: ?[]const u8) !void {
+        const name = read(self);
+
+        if (self.globals.insert(&self.allocator, name, self.peek(0))) {
+            // delete if variable key didn't exist
+            const ret = self.globals.delete(name);
+            self.runtime_error("Undefined variable '{s}'.", .{name.slice()}, file);
+            if (!ret) self.runtime_error("(also had a problem during global deletion)", .{}, file);
+            return VMError.RuntimeError;
+        }
+    }
+
+    fn get_local(self: *VM, T: type, read: fn (*VM) T) void {
+        const slot = read(self);
+        self.push(self.stack[slot]);
+    }
+
+    fn set_local(self: *VM, T: type, read: fn (*VM) T) void {
+        const slot = read(self);
+        self.stack[slot] = self.peek(0);
+    }
+
     inline fn peek(self: *const VM, offset: usize) Value {
         return (self.stack_top - 1 - offset)[0];
+    }
+
+    inline fn peek_mut(self: *const VM, offset: usize) *Value {
+        return &(self.stack_top - 1 - offset)[0];
     }
 
     fn read_string_u8(self: *VM) *ObjString {
@@ -354,13 +322,13 @@ pub const VM = struct {
         return self.stack_top[0];
     }
 
-    inline fn read_u8(self: *VM) u8 {
+    fn read_u8(self: *VM) u8 {
         const byte = self.ip[0];
         self.ip += 1;
         return byte;
     }
 
-    inline fn read_u16(self: *VM) u16 {
+    fn read_u16(self: *VM) u16 {
         const hi: u16 = @as(u16, self.ip[0]) << 8;
         const lo: u16 = @as(u16, self.ip[1]);
         self.ip += 2;
