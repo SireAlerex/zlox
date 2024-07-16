@@ -197,9 +197,9 @@ pub const Compiler = struct {
 
     fn expression_statement(self: *Compiler) !void {
         self.expression();
-        // TODO: try if consuming semicolon is necessary
-        _ = self.match(TokenType.Semicolon);
-        // self.consume(TokenType.Semicolon, "Expect ';' after value.");
+        // TODO: try if consuming semicolon is necessary (note: need to keep consume and error for test suite)
+        // _ = self.match(TokenType.Semicolon);
+        self.consume(TokenType.Semicolon, "Expect ';' after expression.");
         try self.emit_byte(OpCode.Pop);
     }
 
@@ -224,9 +224,9 @@ pub const Compiler = struct {
 
     fn print_statement(self: *Compiler) !void {
         self.expression();
-        // TODO: try if consuming semicolon is necessary
-        _ = self.match(TokenType.Semicolon);
-        // self.consume(TokenType.Semicolon, "Expect ';' after value.");
+        // TODO: try if consuming semicolon is necessary (note: need to keep consume and error for test suite)
+        // _ = self.match(TokenType.Semicolon);
+        self.consume(TokenType.Semicolon, "Expect ';' after value.");
         try self.emit_byte(OpCode.Print);
     }
 
