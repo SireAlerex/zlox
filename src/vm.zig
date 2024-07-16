@@ -218,6 +218,10 @@ pub const VM = struct {
                     const offset = self.read_u16();
                     if (self.peek(0).is_falsey()) self.ip += offset;
                 },
+                .Loop => {
+                    const offset = self.read_u16();
+                    self.ip -= offset;
+                },
                 else => unreachable,
             }
         }

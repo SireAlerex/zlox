@@ -49,6 +49,7 @@ pub const Compiler = struct {
         self.parse_precedence(Precedence.Assignment);
     }
 
+    // TODO: variable function naming
     fn define_variable(self: *Compiler) !void {
         const index = try self.parse_variable("Expect variable name.");
 
@@ -107,7 +108,73 @@ pub const Compiler = struct {
             try self.end_scope();
         } else if (self.match(TokenType.If)) {
             try self.if_statement();
+        } else if (self.match(TokenType.While)) {
+            try self.while_statement();
+        } else if (self.match(TokenType.For)) {
+            try self.for_statement();
         } else try self.expression_statement();
+    }
+
+    fn for_statement(self: *Compiler) AllocatorError!void {
+        self.begin_scope();
+
+        self.consume(TokenType.LParen, "Expect '(' after 'for'.");
+        if (self.match(TokenType.Semicolon)) {
+            // no init
+        } else if (self.match(TokenType.Var)) {
+            try self.define_variable();
+        } else {
+            try self.expression_statement();
+        }
+
+        var loop_start = self.current_chunk().len();
+        var exit_jump: ?usize = null;
+        if (!self.match(TokenType.Semicolon)) {
+            self.expression();
+            self.consume(TokenType.Semicolon, "Expect ';' after loop condition.");
+
+            // Jump out of the loop if the condition is false
+            exit_jump = try self.emit_jump(OpCode.JumpIfFalse);
+            try self.emit_byte(OpCode.Pop); // Condition
+        }
+
+        if (!self.match(TokenType.RParen)) {
+            const body_jump = try self.emit_jump(OpCode.Jump);
+            const increment_start = self.current_chunk().len();
+            self.expression();
+            try self.emit_byte(OpCode.Pop);
+            // std.debug.print("cur:{any}\n", .{self});
+            self.consume(TokenType.RParen, "Expect ')' after for clauses.");
+
+            try self.emit_loop(loop_start);
+            loop_start = increment_start;
+            self.patch_jump(body_jump);
+        }
+
+        try self.statement();
+        try self.emit_loop(loop_start);
+
+        if (exit_jump) |offset| {
+            self.patch_jump(offset);
+            try self.emit_byte(OpCode.Pop); // Condition
+        }
+
+        try self.end_scope();
+    }
+
+    fn while_statement(self: *Compiler) AllocatorError!void {
+        const loop_start = self.current_chunk().len();
+        self.consume(TokenType.LParen, "Expect '(' after 'while'.");
+        self.expression();
+        self.consume(TokenType.RParen, "Expect ')' after condition.");
+
+        const exit_jump = try self.emit_jump(OpCode.JumpIfFalse);
+        try self.emit_byte(OpCode.Pop);
+        try self.statement();
+        try self.emit_loop(loop_start);
+
+        self.patch_jump(exit_jump);
+        try self.emit_byte(OpCode.Pop);
     }
 
     fn if_statement(self: *Compiler) AllocatorError!void {
@@ -367,6 +434,16 @@ pub const Compiler = struct {
             if (i == 0) break; // avoid integer overflow TODO: better solution
         }
         return null;
+    }
+
+    fn emit_loop(self: *Compiler, loop_start: usize) !void {
+        try self.emit_byte(OpCode.Loop);
+
+        const offset = self.current_chunk().len() - loop_start + 2;
+        if (offset > std.math.maxInt(u16)) self.parser.error_at_previous("Loop body too large.");
+
+        try self.emit_byte((offset >> 8) & 0xff);
+        try self.emit_byte(offset & 0xff);
     }
 
     fn emit_jump(self: *Compiler, instruction: OpCode) !usize {

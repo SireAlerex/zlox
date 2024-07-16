@@ -38,6 +38,7 @@ pub const OpCode = enum(u8) {
     SetLocalLong,
     Jump,
     JumpIfFalse,
+    Loop,
     _,
 };
 
@@ -164,8 +165,9 @@ pub const Chunk = struct {
             .GetLocalLong => return self.constant_long_instruction("OP_GET_LOCAL_LONG", offset),
             .SetLocal => return self.byte_instruction("OP_SET_LOCAL", offset),
             .SetLocalLong => return self.constant_long_instruction("OP_SET_LOCAL_LONG", offset),
-            .Jump => return self.jump_instruction("OP_JUMP", offset, 1),
-            .JumpIfFalse => return self.jump_instruction("OP_JUMP_IF_FALSE", offset, 1),
+            .Jump => return self.jump_instruction("OP_JUMP", offset, true),
+            .JumpIfFalse => return self.jump_instruction("OP_JUMP_IF_FALSE", offset, true),
+            .Loop => return self.jump_instruction("OP_LOOP", offset, false),
             else => {
                 print("Unknown opcode {}\n", .{instruction});
                 return offset + 1;
@@ -233,11 +235,12 @@ pub const Chunk = struct {
         return offset + 3;
     }
 
-    fn jump_instruction(self: *const Chunk, name: []const u8, offset: u32, sign: u32) u32 {
+    fn jump_instruction(self: *const Chunk, name: []const u8, offset: u32, pos: bool) u32 {
         const hi = self.get(offset + 1);
         const lo = self.get(offset + 2);
-        const jump: u16 = (@as(u16, hi) << 8) | @as(u16, lo);
-        print("{s: <24} {d} -> {d}\n", .{ name, offset, offset + 3 + sign * jump });
+        const raw_jump: u16 = (@as(u16, hi) << 8) | @as(u16, lo);
+        const jump: u32 = if (pos) offset + 3 + raw_jump else offset + 3 - raw_jump;
+        print("{s: <24} {d} -> {d}\n", .{ name, offset, jump });
 
         return offset + 3;
     }
