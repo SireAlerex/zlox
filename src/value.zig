@@ -70,7 +70,7 @@ pub const Value = union(enum) {
         self.number = -self.number;
     }
 
-    pub fn add(allocator: *const std.mem.Allocator, left: Value, right: Value, vm: *VM) !Value {
+    pub fn add(allocator: std.mem.Allocator, left: Value, right: Value, vm: *VM) !Value {
         if (left == .number) {
             return Value{ .number = left.number + right.number };
         } else { // must be String

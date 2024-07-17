@@ -1,12 +1,13 @@
 const std = @import("std");
 const Value = @import("value.zig").Value;
 const VM = @import("vm.zig").VM;
+const Chunk = @import("chunk.zig").Chunk;
 
 pub const Obj = extern struct {
     type: ObjType,
     next: ?*Obj,
 
-    pub fn allocate(allocator: *const std.mem.Allocator, obj_type: ObjType, kind: type, vm: *VM) !*kind {
+    pub fn allocate(allocator: std.mem.Allocator, obj_type: ObjType, kind: type, vm: *VM) !*kind {
         const ptr: *kind = try allocator.create(kind);
 
         const obj_ptr: *Obj = @ptrCast(ptr);
@@ -22,8 +23,16 @@ pub const Obj = extern struct {
     pub fn show(self: *const Obj) !void {
         switch (self.type) {
             .String => {
-                const str: *const ObjString = @ptrCast(@alignCast(self));
+                const str = self.as_const(ObjString);
                 _ = try std.io.getStdOut().write(str.slice());
+            },
+            .Function => {
+                const func = self.as_const(ObjFunction);
+                if (func.name) |name| {
+                    _ = try std.io.getStdOut().writer().print("<fn {s}>", .{name.slice()});
+                } else {
+                    _ = try std.io.getStdOut().write("<script>");
+                }
             },
         }
     }
@@ -31,32 +40,46 @@ pub const Obj = extern struct {
     pub fn destroy(self: *Obj, allocator: *const std.mem.Allocator) void {
         switch (self.type) {
             .String => {
-                const str: *ObjString = @ptrCast(@alignCast(self));
+                const str = self.as(ObjString);
                 allocator.free(str.slice());
                 allocator.destroy(str);
+            },
+            .Function => {
+                const func = self.as(ObjFunction);
+                func.chunk.destroy();
+                allocator.destroy(func);
             },
         }
     }
 
     pub fn as(self: *Obj, target: type) *target {
         return switch (self.type) {
-            .String => @ptrCast(@alignCast(self)),
+            inline else => @ptrCast(@alignCast(self)),
+        };
+    }
+
+    pub fn as_const(self: *const Obj, target: type) *const target {
+        return switch (self.type) {
+            inline else => @ptrCast(@alignCast(self)),
         };
     }
 
     pub fn show_type(self: *const Obj) []const u8 {
         return switch (self.type) {
             .String => "STRING",
+            .Function => "FUNCTION",
         };
     }
 };
 
-pub const ObjType = enum {
+pub const ObjType = enum(u8) {
     String,
+    Function,
 
     pub fn get_type(kind: type) ObjType {
         switch (kind) {
             ObjString => .String,
+            ObjFunction => .Function,
             else => unreachable,
         }
     }
@@ -68,18 +91,18 @@ pub const ObjString = extern struct {
     len: usize,
     hash: u32,
 
-    pub fn alloc(allocator: *const std.mem.Allocator, chars: []const u8, hash: u32, vm: *VM) !*ObjString {
+    pub fn alloc(allocator: std.mem.Allocator, chars: []const u8, hash: u32, vm: *VM) !*ObjString {
         const obj_string = try Obj.allocate(allocator, ObjType.String, ObjString, vm);
         obj_string.chars = chars.ptr;
         obj_string.len = chars.len;
         obj_string.hash = hash;
 
-        _ = vm.strings.insert(allocator, obj_string, Value.nil);
+        _ = vm.strings.insert(&allocator, obj_string, Value.nil);
 
         return obj_string;
     }
 
-    pub fn copy(allocator: *const std.mem.Allocator, chars: []const u8, vm: *VM) !*ObjString {
+    pub fn copy(allocator: std.mem.Allocator, chars: []const u8, vm: *VM) !*ObjString {
         const hash = hash_string(chars);
         if (vm.strings.find_string(chars, hash)) |interned| {
             return interned;
@@ -91,7 +114,7 @@ pub const ObjString = extern struct {
         return alloc(allocator, heap_chars, hash, vm);
     }
 
-    pub fn take(allocator: *const std.mem.Allocator, chars: []const u8, vm: *VM) !*ObjString {
+    pub fn take(allocator: std.mem.Allocator, chars: []const u8, vm: *VM) !*ObjString {
         const hash = hash_string(chars);
         if (vm.strings.find_string(chars, hash)) |interned| {
             allocator.free(chars);
@@ -107,5 +130,21 @@ pub const ObjString = extern struct {
 
     pub fn slice(self: *const ObjString) []const u8 {
         return self.chars[0..self.len];
+    }
+};
+
+pub const ObjFunction = extern struct {
+    obj: Obj,
+    arity: u8, // TODO: increase size if space available ? (after GC fields on Obj)
+    chunk: *Chunk,
+    name: ?*ObjString,
+
+    pub fn new(allocator: std.mem.Allocator, vm: *VM) *ObjFunction {
+        var function = Obj.allocate(allocator, ObjType.Function, ObjFunction, vm) catch @panic("Out Of Memory");
+        function.arity = 0;
+        function.name = null;
+        function.chunk = Chunk.init(allocator) catch @panic("Out Of Memory");
+
+        return function;
     }
 };

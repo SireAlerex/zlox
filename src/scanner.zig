@@ -8,12 +8,12 @@ pub const Scanner = struct {
     line: u32,
     eof: [*]const u8,
     errors: ArrayListUnmanaged([]u8),
-    allocator: *const std.mem.Allocator,
+    allocator: std.mem.Allocator,
 
-    pub fn init(allocator: *const std.mem.Allocator, source: *[]const u8) !*Scanner {
+    pub fn init(allocator: std.mem.Allocator, source: *[]const u8) !*Scanner {
         var self = try allocator.create(Scanner);
         self.allocator = allocator;
-        self.errors = try ArrayListUnmanaged([]u8).initCapacity(allocator.*, 0);
+        self.errors = try ArrayListUnmanaged([]u8).initCapacity(allocator, 0);
 
         self.start = source.ptr;
         self.current = source.ptr;
@@ -27,7 +27,7 @@ pub const Scanner = struct {
         for (self.errors.items) |item| {
             self.allocator.free(item);
         }
-        self.errors.deinit(self.allocator.*);
+        self.errors.deinit(self.allocator);
         self.allocator.destroy(self);
     }
 
@@ -186,7 +186,7 @@ pub const Scanner = struct {
             return self.basic_errror(fmt);
         };
         // add buffer to errors array to free it when scanner is deinit
-        self.errors.append(self.allocator.*, buf) catch {
+        self.errors.append(self.allocator, buf) catch {
             return self.basic_errror(fmt);
         };
 

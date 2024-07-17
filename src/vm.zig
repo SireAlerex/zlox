@@ -9,6 +9,7 @@ const Compiler = @import("compiler.zig").Compiler;
 const Obj = @import("object.zig").Obj;
 const ObjType = @import("object.zig").ObjType;
 const ObjString = @import("object.zig").ObjString;
+const ObjFunction = @import("object.zig").ObjFunction;
 const Table = @import("table.zig").Table;
 
 const config = @import("main.zig").config;
@@ -21,17 +22,20 @@ pub const VMError = error{
 pub const VM = struct {
     chunk: *Chunk,
     ip: [*]u8,
-    stack: [config.STACK_SIZE]Value = [_]Value{.uninit} ** config.STACK_SIZE,
+    stack: [config.STACK_SIZE * FRAMES_MAX]Value = [_]Value{.uninit} ** (config.STACK_SIZE * FRAMES_MAX),
     stack_top: [*]Value,
     strings: Table,
     globals: Table,
     objects: ?*Obj = null,
+    frames: [FRAMES_MAX]CallFrame = [_]CallFrame{undefined} ** FRAMES_MAX,
+    frame_count: usize = 0,
     allocator: std.mem.Allocator,
 
     // const values
     const FALSE = Value{ .boolean = false };
     const TRUE = Value{ .boolean = true };
     const NIL = Value.nil;
+    const FRAMES_MAX = 64;
 
     /// Must call init after creating VM
     pub fn create() VM {
@@ -63,19 +67,19 @@ pub const VM = struct {
     }
 
     pub fn interpret(self: *VM, allocator: *const std.mem.Allocator, source: *[]const u8, file: ?[]const u8) !void {
-        const chunk = try Chunk.init(allocator);
-        defer chunk.destroy();
+        if (try Compiler.compile(allocator.*, source, self)) |function| {
+            self.push(Value{ .obj = &function.obj });
+            const frame = &self.frames[self.frame_count];
+            self.frame_count += 1;
+            frame.function = function;
+            frame.ip = function.chunk.code.items.ptr;
+            frame.slots = &self.stack;
 
-        if (!(try Compiler.compile(source, chunk, self))) {
-            return VMError.CompileError;
-        }
+            const result = self.run(file);
+            if (comptime config.DEBUG_MODE) print("Instruction count: {d}\n", .{instructions});
 
-        self.init_with_chunk(chunk);
-
-        const result = self.run(file);
-        if (comptime config.DEBUG_MODE) print("Instruction count: {d}\n", .{instructions});
-
-        return result;
+            return result;
+        } else return VMError.CompileError;
     }
 
     var instructions: u64 = 0;
@@ -84,6 +88,8 @@ pub const VM = struct {
         if (comptime config.DEBUG_MODE) instructions = 0;
 
         while (true) {
+            const frame = &self.frames[self.frame_count - 1];
+
             if (comptime config.DEBUG_MODE) {
                 instructions += 1;
                 print("          ", .{});
@@ -99,21 +105,21 @@ pub const VM = struct {
                 }
                 print("\n", .{});
 
-                _ = self.chunk.disassemble_instruction(@truncate(@intFromPtr(self.ip) - @intFromPtr(self.chunk.code.items.ptr)));
+                _ = self.chunk.disassemble_instruction(@truncate(@intFromPtr(frame.ip) - @intFromPtr(frame.function.chunk.code.items.ptr)));
             }
 
-            const instruction: OpCode = @enumFromInt(self.ip[0]);
-            self.ip += 1;
+            const instruction: OpCode = @enumFromInt(frame.ip[0]);
+            frame.ip += 1;
 
             switch (instruction) {
                 .Return => {
                     return;
                 },
                 .Constant => {
-                    self.constant(u8, read_u8);
+                    self.constant(u8, read_u8, frame);
                 },
                 .ConstantLong => {
-                    self.constant(u16, read_u16);
+                    self.constant(u16, read_u16, frame);
                 },
                 .Negate => {
                     var last_slot = self.peek_mut(0);
@@ -136,7 +142,7 @@ pub const VM = struct {
                         return VMError.RuntimeError;
                     }
 
-                    const sum = Value.add(&self.allocator, left, right, self) catch {
+                    const sum = Value.add(self.allocator, left, right, self) catch {
                         self.runtime_error("Out Of Memory during string concatenation", .{}, file);
                         return VMError.RuntimeError;
                     };
@@ -181,46 +187,46 @@ pub const VM = struct {
                 },
                 .Pop => _ = self.pop(),
                 .DefineGlobal => {
-                    self.define_global(read_string_u8);
+                    self.define_global(read_string_u8, frame);
                 },
                 .DefineGlobalLong => {
-                    self.define_global(read_string_u16);
+                    self.define_global(read_string_u16, frame);
                 },
                 .GetGlobal => {
-                    try self.get_global(read_string_u8, file);
+                    try self.get_global(read_string_u8, frame, file);
                 },
                 .GetGlobalLong => {
-                    try self.get_global(read_string_u16, file);
+                    try self.get_global(read_string_u16, frame, file);
                 },
                 .SetGlobal => {
-                    try self.set_global(read_string_u8, file);
+                    try self.set_global(read_string_u8, frame, file);
                 },
                 .SetGlobalLong => {
-                    try self.set_global(read_string_u16, file);
+                    try self.set_global(read_string_u16, frame, file);
                 },
                 .GetLocal => {
-                    self.get_local(u8, read_u8);
+                    self.get_local(u8, read_u8, frame);
                 },
                 .GetLocalLong => {
-                    self.get_local(u16, read_u16);
+                    self.get_local(u16, read_u16, frame);
                 },
                 .SetLocal => {
-                    self.set_local(u8, read_u8);
+                    self.set_local(u8, read_u8, frame);
                 },
                 .SetLocalLong => {
-                    self.set_local(u16, read_u16);
+                    self.set_local(u16, read_u16, frame);
                 },
                 .Jump => {
-                    const offset = self.read_u16();
-                    self.ip += offset;
+                    const offset = frame.read_u16();
+                    frame.ip += offset;
                 },
                 .JumpIfFalse => {
-                    const offset = self.read_u16();
-                    if (self.peek(0).is_falsey()) self.ip += offset;
+                    const offset = frame.read_u16();
+                    if (self.peek(0).is_falsey()) frame.ip += offset;
                 },
                 .Loop => {
-                    const offset = self.read_u16();
-                    self.ip -= offset;
+                    const offset = frame.read_u16();
+                    frame.ip -= offset;
                 },
                 else => unreachable,
             }
@@ -229,8 +235,9 @@ pub const VM = struct {
         return;
     }
 
-    fn constant(self: *VM, T: type, read: fn (*VM) T) void {
-        const value = self.chunk.get_constant(read(self));
+    fn constant(self: *VM, T: type, read: fn (*CallFrame) T, frame: *CallFrame) void {
+        // TODO: READ_CONSTANT
+        const value = frame.function.chunk.get_constant(read(frame));
         self.push(value);
     }
 
@@ -262,15 +269,15 @@ pub const VM = struct {
         mutate(left, right);
     }
 
-    fn define_global(self: *VM, read: fn (*VM) *ObjString) void {
-        const name = read(self);
+    fn define_global(self: *VM, read: fn (*CallFrame) *ObjString, frame: *CallFrame) void {
+        const name = read(frame);
         _ = self.globals.insert(&self.allocator, name, self.peek(0));
         // pop only after being added to avoid problem with gc
         _ = self.pop();
     }
 
-    fn get_global(self: *VM, read: fn (*VM) *ObjString, file: ?[]const u8) !void {
-        const name = read(self);
+    fn get_global(self: *VM, read: fn (*CallFrame) *ObjString, frame: *CallFrame, file: ?[]const u8) !void {
+        const name = read(frame);
         if (self.globals.get(name)) |value| {
             self.push(value);
         } else {
@@ -279,8 +286,8 @@ pub const VM = struct {
         }
     }
 
-    fn set_global(self: *VM, read: fn (*VM) *ObjString, file: ?[]const u8) !void {
-        const name = read(self);
+    fn set_global(self: *VM, read: fn (*CallFrame) *ObjString, frame: *CallFrame, file: ?[]const u8) !void {
+        const name = read(frame);
 
         if (self.globals.insert(&self.allocator, name, self.peek(0))) {
             // delete if variable key didn't exist
@@ -291,14 +298,14 @@ pub const VM = struct {
         }
     }
 
-    fn get_local(self: *VM, T: type, read: fn (*VM) T) void {
-        const slot = read(self);
-        self.push(self.stack[slot]);
+    fn get_local(self: *VM, T: type, read: fn (*CallFrame) T, frame: *CallFrame) void {
+        const slot = read(frame);
+        self.push(frame.slots[slot]);
     }
 
-    fn set_local(self: *VM, T: type, read: fn (*VM) T) void {
-        const slot = read(self);
-        self.stack[slot] = self.peek(0);
+    fn set_local(self: *VM, T: type, read: fn (*CallFrame) T, frame: *CallFrame) void {
+        const slot = read(frame);
+        frame.slots[slot] = self.peek(0);
     }
 
     inline fn peek(self: *const VM, offset: usize) Value {
@@ -309,12 +316,12 @@ pub const VM = struct {
         return &(self.stack_top - 1 - offset)[0];
     }
 
-    fn read_string_u8(self: *VM) *ObjString {
-        return self.chunk.get_constant(self.read_u8()).obj.as(ObjString);
+    fn read_string_u8(frame: *CallFrame) *ObjString {
+        return frame.function.chunk.get_constant(frame.read_u8()).obj.as(ObjString);
     }
 
-    fn read_string_u16(self: *VM) *ObjString {
-        return self.chunk.get_constant(self.read_u16()).obj.as(ObjString);
+    fn read_string_u16(frame: *CallFrame) *ObjString {
+        return frame.function.chunk.get_constant(frame.read_u16()).obj.as(ObjString);
     }
 
     inline fn push(self: *VM, value: Value) void {
@@ -334,31 +341,52 @@ pub const VM = struct {
         return self.stack_top[0];
     }
 
-    fn read_u8(self: *VM) u8 {
-        const byte = self.ip[0];
-        self.ip += 1;
+    fn read_u8(frame: *CallFrame) u8 {
+        const byte = frame.ip[0];
+        frame.ip += 1;
         return byte;
     }
 
-    fn read_u16(self: *VM) u16 {
-        const hi: u16 = @as(u16, self.ip[0]) << 8;
-        const lo: u16 = @as(u16, self.ip[1]);
-        self.ip += 2;
+    fn read_u16(frame: *CallFrame) u16 {
+        const hi: u16 = @as(u16, frame.ip[0]) << 8;
+        const lo: u16 = @as(u16, frame.ip[1]);
+        frame.ip += 2;
         return hi | lo;
     }
 
     pub fn reset_stack(self: *VM) void {
         self.stack_top = &self.stack;
+        self.frame_count = 0;
     }
 
     fn runtime_error(self: *VM, comptime fmt: []const u8, args: anytype, file: ?[]const u8) void {
         print(fmt, args);
         print("\n", .{});
 
-        const instruction = @intFromPtr(self.ip) - @intFromPtr(self.chunk.code.items.ptr) - 1;
-        const line = self.chunk.get_line(@truncate(instruction)).line;
-        const source = if (file != null and !config.TEST_MODE) file.? else "script";
+        const frame = self.frames[self.frame_count - 1];
+        const instruction = @intFromPtr(frame.ip) - @intFromPtr(frame.function.chunk.code.items.ptr) - 1;
+        const line = frame.function.chunk.get_line(@truncate(instruction)).line;
+        const source: []const u8 = if (file != null and !config.TEST_MODE) file.? else "script";
         print("[line {d}] in {s}\n", .{ line, source });
         self.reset_stack();
     }
+
+    const CallFrame = struct {
+        function: *ObjFunction,
+        ip: [*]u8,
+        slots: [*]Value,
+
+        fn read_u8(frame: *CallFrame) u8 {
+            const byte = frame.ip[0];
+            frame.ip += 1;
+            return byte;
+        }
+
+        fn read_u16(frame: *CallFrame) u16 {
+            const hi: u16 = @as(u16, frame.ip[0]) << 8;
+            const lo: u16 = @as(u16, frame.ip[1]);
+            frame.ip += 2;
+            return hi | lo;
+        }
+    };
 };

@@ -9,6 +9,7 @@ const Value = @import("value.zig").Value;
 const ObjString = @import("object.zig").ObjString;
 const ObjType = @import("object.zig").ObjType;
 const Obj = @import("object.zig").Obj;
+const ObjFunction = @import("object.zig").ObjFunction;
 const VM = @import("vm.zig").VM;
 
 const DEBUG_MODE = @import("main.zig").config.DEBUG_MODE;
@@ -19,20 +20,28 @@ const AllocatorError = std.mem.Allocator.Error;
 pub const Compiler = struct {
     scanner: *Scanner,
     parser: Parser,
-    chunk: *Chunk,
+    // chunk: *Chunk,
     vm: *VM,
     locals: [MAX_LOCAL + 1]Local = [_]Local{undefined} ** (MAX_LOCAL + 1),
     local_count: usize = 0,
     scope_depth: isize = 0,
+    function: *ObjFunction,
+    kind: FunctionKind,
 
     const MAX_LOCAL = std.math.maxInt(u16);
 
-    pub fn compile(source: *[]const u8, chunk: *Chunk, vm: *VM) !bool {
-        const scanner = try Scanner.init(chunk.allocator, source);
+    pub fn compile(allocator: std.mem.Allocator, source: *[]const u8, vm: *VM) !?*ObjFunction {
+        const scanner = try Scanner.init(allocator, source);
         defer scanner.deinit();
         const parser = Parser{ .current = undefined, .previous = undefined, .had_error = false, .panic_mode = false };
 
-        var compiler = Compiler{ .scanner = scanner, .parser = parser, .chunk = chunk, .vm = vm };
+        var compiler = Compiler{ .scanner = scanner, .parser = parser, .vm = vm, .function = ObjFunction.new(allocator, vm), .kind = FunctionKind.Script };
+
+        // local 0 reserved for VM
+        const local = &compiler.locals[0];
+        compiler.local_count += 1;
+        local.depth = 0;
+        local.name.str = "";
 
         compiler.advance();
 
@@ -40,9 +49,9 @@ pub const Compiler = struct {
             compiler.declaration() catch |err| compiler.handle_error(err);
         }
 
-        compiler.end_compiler() catch |err| compiler.handle_error(err);
+        const function = try compiler.end_compiler();
 
-        return !compiler.parser.had_error;
+        return if (compiler.parser.had_error) null else function;
     }
 
     fn expression(self: *Compiler) void {
@@ -61,7 +70,7 @@ pub const Compiler = struct {
             return;
         }
 
-        try self.chunk.write_constant(index, self.parser.previous.line, OpCode.DefineGlobal, OpCode.DefineGlobalLong);
+        try self.current_chunk().write_constant(index, self.parser.previous.line, OpCode.DefineGlobal, OpCode.DefineGlobalLong);
     }
 
     fn declaration(self: *Compiler) AllocatorError!void {
@@ -143,7 +152,6 @@ pub const Compiler = struct {
             const increment_start = self.current_chunk().len();
             self.expression();
             try self.emit_byte(OpCode.Pop);
-            // std.debug.print("cur:{any}\n", .{self});
             self.consume(TokenType.RParen, "Expect ')' after for clauses.");
 
             try self.emit_loop(loop_start);
@@ -367,8 +375,8 @@ pub const Compiler = struct {
     }
 
     fn identifier_constant(self: *Compiler, name: *const Token) !usize {
-        const str = try ObjString.copy(self.chunk.allocator, name.str.ptr[0..name.str.len], self.vm);
-        return try self.chunk.make_constant(Value{ .obj = @ptrCast(str) });
+        const str = try ObjString.copy(self.current_chunk().allocator, name.str.ptr[0..name.str.len], self.vm);
+        return try self.current_chunk().make_constant(Value{ .obj = @ptrCast(str) });
     }
 
     fn number(self: *Compiler, _: bool) void {
@@ -385,7 +393,7 @@ pub const Compiler = struct {
     }
 
     fn innner_string(self: *Compiler) !void {
-        const str = try ObjString.copy(self.chunk.allocator, self.parser.previous.str.ptr[1 .. self.parser.previous.str.len - 1], self.vm);
+        const str = try ObjString.copy(self.current_chunk().allocator, self.parser.previous.str.ptr[1 .. self.parser.previous.str.len - 1], self.vm);
         try self.emit_constant(Value{ .obj = @ptrCast(str) });
     }
 
@@ -415,9 +423,9 @@ pub const Compiler = struct {
 
         if (can_assign and self.match(TokenType.Equal)) {
             self.expression();
-            try self.chunk.write_constant(index, self.parser.previous.line, set_op, set_op_long);
+            try self.current_chunk().write_constant(index, self.parser.previous.line, set_op, set_op_long);
         } else {
-            try self.chunk.write_constant(index, self.parser.previous.line, get_op, get_op_long);
+            try self.current_chunk().write_constant(index, self.parser.previous.line, get_op, get_op_long);
         }
     }
 
@@ -463,8 +471,8 @@ pub const Compiler = struct {
     }
 
     fn emit_constant(self: *Compiler, value: Value) !void {
-        const index = try self.chunk.make_constant(value);
-        try self.chunk.write_constant(index, self.parser.previous.line, OpCode.Constant, OpCode.ConstantLong);
+        const index = try self.current_chunk().make_constant(value);
+        try self.current_chunk().write_constant(index, self.parser.previous.line, OpCode.Constant, OpCode.ConstantLong);
     }
 
     fn advance(self: *Compiler) void {
@@ -485,7 +493,7 @@ pub const Compiler = struct {
     }
 
     fn emit_byte(self: *Compiler, byte: anytype) !void {
-        try self.chunk.write(byte, self.parser.previous.line);
+        try self.current_chunk().write(byte, self.parser.previous.line);
     }
 
     fn emit_bytes(self: *Compiler, byte1: anytype, byte2: anytype) !void {
@@ -493,13 +501,17 @@ pub const Compiler = struct {
         try self.emit_byte(byte2);
     }
 
-    fn end_compiler(self: *Compiler) !void {
+    fn end_compiler(self: *Compiler) !*ObjFunction {
         try self.emit_return();
+        const function = self.function;
         if (comptime DEBUG_MODE) {
             if (!self.parser.had_error) {
-                self.current_chunk().dissasemble_chunk("code");
+                // TODO: debug with function name or script
+                self.current_chunk().dissasemble_chunk(if (function.name) |name| name.slice() else "<script>");
             }
         }
+
+        return function;
     }
 
     fn emit_return(self: *Compiler) !void {
@@ -514,7 +526,7 @@ pub const Compiler = struct {
     }
 
     fn current_chunk(self: *Compiler) *Chunk {
-        return self.chunk;
+        return self.function.chunk;
     }
 
     fn handle_error(self: *Compiler, err: anyerror) void {
@@ -619,5 +631,10 @@ pub const Compiler = struct {
     const Local = struct {
         name: Token,
         depth: isize,
+    };
+
+    const FunctionKind = enum {
+        Function,
+        Script,
     };
 };

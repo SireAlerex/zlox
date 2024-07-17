@@ -46,21 +46,21 @@ pub const Chunk = struct {
     code: ArrayListUnmanaged(u8),
     constants: ArrayListUnmanaged(Value),
     lines: ArrayListUnmanaged(Line),
-    allocator: *const std.mem.Allocator,
+    allocator: std.mem.Allocator, // TODO: clean up allocator when GC
 
-    pub fn init(allocator: *const std.mem.Allocator) AllocatorError!*Chunk {
+    pub fn init(allocator: std.mem.Allocator) AllocatorError!*Chunk {
         var self = try allocator.create(Chunk);
-        self.code = try ArrayListUnmanaged(u8).initCapacity(allocator.*, 4);
-        self.constants = try ArrayListUnmanaged(Value).initCapacity(allocator.*, 4);
-        self.lines = try ArrayListUnmanaged(Line).initCapacity(allocator.*, 4);
+        self.code = try ArrayListUnmanaged(u8).initCapacity(allocator, 4);
+        self.constants = try ArrayListUnmanaged(Value).initCapacity(allocator, 4);
+        self.lines = try ArrayListUnmanaged(Line).initCapacity(allocator, 4);
         self.allocator = allocator;
         return self;
     }
 
     pub fn destroy(self: *Chunk) void {
-        self.code.deinit(self.allocator.*);
-        self.constants.deinit(self.allocator.*);
-        self.lines.deinit(self.allocator.*);
+        self.code.deinit(self.allocator);
+        self.constants.deinit(self.allocator);
+        self.lines.deinit(self.allocator);
         self.allocator.destroy(self);
     }
 
@@ -78,9 +78,9 @@ pub const Chunk = struct {
 
     pub fn write(self: *Chunk, byte: anytype, line: u32) AllocatorError!void {
         switch (@TypeOf(byte)) {
-            inline comptime_int, u8 => try self.code.append(self.allocator.*, byte),
-            usize => try self.code.append(self.allocator.*, @truncate(byte)),
-            OpCode => try self.code.append(self.allocator.*, @intFromEnum(byte)),
+            inline comptime_int, u8 => try self.code.append(self.allocator, byte),
+            usize => try self.code.append(self.allocator, @truncate(byte)),
+            OpCode => try self.code.append(self.allocator, @intFromEnum(byte)),
             else => unreachable,
         }
 
@@ -90,7 +90,7 @@ pub const Chunk = struct {
             last.* = Line{ .line = line, .count = last.count + 1 };
         } else {
             // append a new line with a base count of 1
-            try self.lines.append(self.allocator.*, Line{ .line = line, .count = 1 });
+            try self.lines.append(self.allocator, Line{ .line = line, .count = 1 });
         }
     }
 
@@ -112,7 +112,7 @@ pub const Chunk = struct {
     }
 
     pub fn make_constant(self: *Chunk, value: Value) AllocatorError!usize {
-        try self.constants.append(self.allocator.*, value);
+        try self.constants.append(self.allocator, value);
         return self.constants_len() - 1;
     }
 
